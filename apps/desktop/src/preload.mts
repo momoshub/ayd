@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { RunEvent } from '@ayd/core';
+import type { AgentMessage, RunEvent } from '@ayd/core';
 import { IPC } from './ipc.js';
 
 /** The safe API exposed to the renderer as window.ayd. */
@@ -9,6 +9,13 @@ export interface AydBridge {
   planAndRun(description: string): Promise<unknown>;
   stop(): Promise<void>;
   onEvent(cb: (event: RunEvent) => void): () => void;
+  /** Start a live session (first call) or send the next operator message. */
+  chat(text: string): Promise<unknown>;
+  /** Interrupt the current agent turn; the session stays open for a follow-up. */
+  interruptChat(): Promise<void>;
+  /** End the live session and close its browser. */
+  endChat(): Promise<void>;
+  onAgentMessage(cb: (message: AgentMessage) => void): () => void;
 }
 
 const bridge: AydBridge = {
@@ -20,6 +27,14 @@ const bridge: AydBridge = {
     const listener = (_e: unknown, event: RunEvent): void => cb(event);
     ipcRenderer.on(IPC.event, listener);
     return () => ipcRenderer.off(IPC.event, listener);
+  },
+  chat: (text) => ipcRenderer.invoke(IPC.chat, text),
+  interruptChat: () => ipcRenderer.invoke(IPC.interruptChat) as Promise<void>,
+  endChat: () => ipcRenderer.invoke(IPC.endChat) as Promise<void>,
+  onAgentMessage: (cb) => {
+    const listener = (_e: unknown, message: AgentMessage): void => cb(message);
+    ipcRenderer.on(IPC.agentMessage, listener);
+    return () => ipcRenderer.off(IPC.agentMessage, listener);
   },
 };
 

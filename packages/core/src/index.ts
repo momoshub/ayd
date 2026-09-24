@@ -15,6 +15,12 @@ export type { BrowserDriver } from './ports/browser-driver.js';
 export type { Clock } from './ports/clock.js';
 export type { Presenter, RunEvent } from './ports/presenter.js';
 export type { AiPlanner, PlanRequest, PlannerError } from './ports/ai-planner.js';
+export type {
+  InteractiveAgent,
+  AgentSession,
+  AgentMessage,
+  StartAgentRequest,
+} from './ports/interactive-agent.js';
 
 // Application
 export { runScript, type RunDeps } from './application/run-script.js';

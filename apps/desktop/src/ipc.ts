@@ -12,6 +12,14 @@ export const IPC = {
   getProfile: 'ayd:get-profile',
   /** main → renderer: a streamed RunEvent. */
   event: 'ayd:event',
+  /** renderer → main: start (or continue) a live chat session driving the browser. */
+  chat: 'ayd:chat',
+  /** renderer → main: interrupt the current agent turn (session stays open). */
+  interruptChat: 'ayd:interrupt-chat',
+  /** renderer → main: end the live chat session and close its browser. */
+  endChat: 'ayd:end-chat',
+  /** main → renderer: a streamed AgentMessage from the live session. */
+  agentMessage: 'ayd:agent-message',
 } as const;
 
 /** Presenter that forwards run events to a renderer over `send(IPC.event, ...)`. */

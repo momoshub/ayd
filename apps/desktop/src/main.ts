@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  type AgentSession,
   type Clock,
   type Persona,
   type Result,
@@ -10,7 +11,7 @@ import {
   runScript,
 } from '@ayd/core';
 import { createPlaywrightDriver, type PlaywrightDriver } from '@ayd/engine';
-import { createClaudeAgentPlanner } from '@ayd/planner';
+import { createClaudeAgentPlanner, createInteractiveAgent } from '@ayd/planner';
 import { app, BrowserWindow, ipcMain } from 'electron';
 import { type Browser, chromium } from 'playwright';
 import { createIpcPresenter, IPC } from './ipc.js';
@@ -32,6 +33,21 @@ let controlWindow: BrowserWindow | null = null;
 let activeBrowser: Browser | null = null;
 let activeController: AbortController | null = null;
 let running = false;
+
+// Live interactive chat session (kept open across turns, unlike a one-shot run).
+let activeSession: AgentSession | null = null;
+let sessionBrowser: Browser | null = null;
+let sessionDriver: PlaywrightDriver | null = null;
+
+const endSession = async (): Promise<void> => {
+  await activeSession?.end().catch(() => undefined);
+  activeSession = null;
+  await sessionDriver?.close().catch(() => undefined);
+  await sessionBrowser?.close().catch(() => undefined);
+  sessionDriver = null;
+  sessionBrowser = null;
+  running = false;
+};
 
 const send = (channel: string, payload: unknown): void => {
   controlWindow?.webContents.send(channel, payload);
@@ -132,6 +148,43 @@ const registerIpc = (): void => {
     });
   });
 
+  // Chat: the first message starts a live session (own browser, kept open); later
+  // messages continue it. The session drives the browser via the interactive agent.
+  ipcMain.handle(IPC.chat, async (_e, text: string) => {
+    if (activeSession) {
+      activeSession.send(text);
+      return { ok: true };
+    }
+    if (running) return { ok: false, error: ['a run is already in progress — stop it first'] };
+    const profile = await loadProfile();
+    if (!profile.ok) return { ok: false, error: profile.error };
+    running = true;
+    try {
+      sessionBrowser = await chromium.launch({ headless: false, args: ['--start-maximized'] });
+      sessionDriver = createPlaywrightDriver({
+        browser: sessionBrowser,
+        personas: profile.value.personas,
+        baseUrl: profile.value.baseUrl,
+      });
+      activeSession = createInteractiveAgent({ driver: sessionDriver }).start({
+        personas: profile.value.personas,
+        baseUrl: profile.value.baseUrl,
+        firstMessage: text,
+        onMessage: (m) => send(IPC.agentMessage, m),
+      });
+      return { ok: true };
+    } catch (e) {
+      await endSession();
+      return { ok: false, error: [`could not start session: ${String(e)}`] };
+    }
+  });
+
+  ipcMain.handle(IPC.interruptChat, async () => {
+    await activeSession?.interrupt();
+  });
+
+  ipcMain.handle(IPC.endChat, () => endSession());
+
   // Abort the run loop (stops between steps) AND close the browser so an in-flight
   // step's Playwright call rejects instead of hanging.
   ipcMain.handle(IPC.stop, async () => {
@@ -177,5 +230,6 @@ void app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   activeController?.abort();
   void activeBrowser?.close().catch(() => undefined);
+  void endSession();
   if (process.platform !== 'darwin') app.quit();
 });
