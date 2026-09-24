@@ -65,7 +65,7 @@ export default tseslint.config(
 
   // Tests may be looser.
   {
-    files: ['**/*.test.ts'],
+    files: ['**/*.test.ts', '**/*.itest.ts'],
     rules: {
       '@typescript-eslint/no-non-null-assertion': 'off',
       'no-restricted-imports': 'off',
