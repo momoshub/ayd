@@ -14,6 +14,8 @@ export interface RunDeps {
   readonly paceMs?: number;
   /** Fallback timeout for `waitFor` steps that don't set one. */
   readonly defaultTimeoutMs?: number;
+  /** Abort the run between steps (and skip the inter-step pause). */
+  readonly signal?: AbortSignal;
 }
 
 const executeStep = async (
@@ -70,8 +72,14 @@ export const runScript = async (script: DemoScript, deps: RunDeps): Promise<RunR
 
   presenter.emit({ type: 'run-started', scriptId: script.id, totalSteps: script.steps.length });
 
+  // Read through a call, not a property chain: `signal.aborted` flips while a step
+  // is awaited, and TS would otherwise narrow it to `false` after the loop-top guard.
+  const aborted = (): boolean => deps.signal?.aborted === true;
+
   const outcomes: StepOutcome[] = [];
   for (const [index, step] of script.steps.entries()) {
+    // Stop cleanly on abort: don't run (or record) further steps, and skip the pause.
+    if (aborted()) break;
     presenter.emit({ type: 'step-started', index, step });
     try {
       await executeStep(step, driver, defaultTimeoutMs);
@@ -82,7 +90,7 @@ export const runScript = async (script: DemoScript, deps: RunDeps): Promise<RunR
       outcomes.push({ index, action: step.action, ok: false, reason });
       presenter.emit({ type: 'step-failed', index, step, reason });
     }
-    if (paceMs > 0) await clock.sleep(paceMs);
+    if (paceMs > 0 && !aborted()) await clock.sleep(paceMs);
   }
 
   const succeeded = outcomes.filter((o) => o.ok).length;

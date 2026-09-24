@@ -57,6 +57,13 @@ export const createClaudeAgentPlanner = (opts: ClaudeAgentPlannerOptions = {}): 
       const { system, user } = buildPlannerPrompt(request);
       const options: Options = {
         systemPrompt: system,
+        // Load NO Claude Code settings. Omitting settingSources loads user/project/local
+        // settings, which would run hooks (shell, outside the tool system), expose their MCP
+        // servers, and inject CLAUDE.md into context — breaking both the tool-free guarantee
+        // and the "no sensitive data leaves the repo" constraint. This makes isolation real;
+        // disallowedTools + strictMcpConfig are defense in depth.
+        settingSources: [],
+        strictMcpConfig: true,
         disallowedTools: [...DISALLOWED_TOOLS],
         permissionMode: 'default',
         ...(opts.model !== undefined ? { model: opts.model } : {}),

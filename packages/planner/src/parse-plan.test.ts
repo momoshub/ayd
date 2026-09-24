@@ -60,4 +60,26 @@ describe('extractDemoScript', () => {
       expect(r.error.issues?.some((i) => i.includes('personaId'))).toBe(true);
     }
   });
+
+  it('keeps the model’s own personas when it supplies them', () => {
+    const own = [{ id: 'user', label: 'Custom', color: '#000000' }];
+    const r = extractDemoScript(
+      JSON.stringify({ id: 'x', title: 'X', personas: own, steps }),
+      request,
+    );
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.value.personas).toHaveLength(1);
+      expect(r.value.personas[0]?.label).toBe('Custom');
+    }
+  });
+
+  it('falls back to a default title + slug when the title is blank', () => {
+    const r = extractDemoScript(JSON.stringify({ title: '   ', steps }), request);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.value.title).toBe('Planned demo');
+      expect(r.value.id).toBe('planned-demo');
+    }
+  });
 });

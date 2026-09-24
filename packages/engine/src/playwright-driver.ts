@@ -82,13 +82,14 @@ export const createPlaywrightDriver = (config: PlaywrightDriverConfig): Playwrig
     }
   };
 
-  const glideTo = async (page: Page, locator: Locator): Promise<[number, number] | null> => {
+  // Glide the on-screen pointer to the element's centre (visual only; the real
+  // interaction is done by the caller via a verified Locator action).
+  const glideTo = async (page: Page, locator: Locator): Promise<void> => {
     await locator.scrollIntoViewIfNeeded({ timeout: 4000 }).catch(() => undefined);
     const box = await locator.boundingBox().catch(() => null);
-    if (!box) return null;
+    if (!box) return;
     const [x, y] = boxCenter(box);
     await page.mouse.move(x, y, { steps: pointerSteps });
-    return [x, y];
   };
 
   return {
@@ -112,9 +113,10 @@ export const createPlaywrightDriver = (config: PlaywrightDriverConfig): Playwrig
     async click(personaId, target) {
       const session = await ensureSession(personaId);
       const locator = resolveLocator(session.page, target);
-      const point = await glideTo(session.page, locator);
-      if (point) await session.page.mouse.click(point[0], point[1]);
-      else await locator.click({ timeout: 4000 }).catch(() => undefined);
+      await glideTo(session.page, locator); // move the on-screen pointer to the target
+      // A verified click (waits for actionability); it throws if the element isn't
+      // clickable, so runScript records a real failure instead of a false success.
+      await locator.click({ timeout: 4000 });
     },
 
     async type(personaId, target, text, opts) {

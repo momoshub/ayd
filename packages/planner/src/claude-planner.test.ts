@@ -31,12 +31,15 @@ describe('createClaudeAgentPlanner', () => {
     if (r.ok) expect(r.value.steps[0]?.action).toBe('navigate');
   });
 
-  it('sends a tool-free, custom-system-prompt turn', async () => {
+  it('sends an isolated, tool-free, custom-system-prompt turn', async () => {
     const spy = vi.fn(okQuery(scriptJson));
     await createClaudeAgentPlanner({ runQuery: spy as unknown as QueryFn }).plan(request);
     const options = spy.mock.calls[0]?.[0].options as Options;
     expect(options.disallowedTools).toEqual([...DISALLOWED_TOOLS]);
     expect(typeof options.systemPrompt).toBe('string');
+    // isolation: no Claude Code settings/hooks/MCP/CLAUDE.md loaded
+    expect(options.settingSources).toEqual([]);
+    expect(options.strictMcpConfig).toBe(true);
     expect(spy.mock.calls[0]?.[0].prompt).toContain('admin grants');
   });
 
