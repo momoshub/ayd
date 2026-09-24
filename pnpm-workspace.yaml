@@ -1,0 +1,11 @@
+packages:
+  - packages/*
+  - apps/*
+
+# Vetted packages allowed to run install lifecycle scripts (pnpm blocks all by
+# default as a supply-chain guard). esbuild builds its native binary for vitest;
+# the TS7 native compiler fetches its platform binary. Electron is added when
+# apps/desktop lands.
+allowBuilds:
+  esbuild: true
+  '@typescript/native-preview': true

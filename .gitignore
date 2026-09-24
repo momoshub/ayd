@@ -1,0 +1,33 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build output
+dist/
+out/
+build/
+*.tsbuildinfo
+
+# electron packaging
+apps/desktop/release/
+
+# test / coverage
+coverage/
+.vitest/
+
+# local, machine-specific, and SENSITIVE config — never commit
+# (staging URLs, demo accounts, Claude Code tokens all live here)
+.env
+.env.*
+!.env.example
+*.local.json
+.claude/settings.local.json
+config/local/
+secrets/
+
+# editor / OS
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
