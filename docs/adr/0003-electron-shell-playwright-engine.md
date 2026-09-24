@@ -32,3 +32,13 @@ The engine is a normal Node/Playwright library (`packages/engine`) behind the `B
 port — reusable and testable independent of Electron. The Electron main process is the
 composition root; the renderer is the control UI. If Bun-based shells (e.g. Electrobun)
 mature, only `apps/desktop` changes — `core` and `engine` don't.
+
+### Renderer security posture
+
+The control window runs with `contextIsolation: true` and `nodeIntegration: false` — the
+load-bearing protections — and talks to the main process only through a small typed IPC
+surface (`preload.ts` via `contextBridge`). The Chromium `sandbox` is left **off** because
+the preload is ESM (the app is `"type": "module"`) and a sandboxed preload must be CommonJS
+and cannot `import './ipc.js'`. The rendered content is local and static (no remote origins,
+CSP restricts to `'self'`), so the residual risk is low. To turn the sandbox on, bundle the
+preload to a single CommonJS file (e.g. esbuild) first; tracked as a future hardening step.

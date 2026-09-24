@@ -4,7 +4,7 @@ import tseslint from 'typescript-eslint';
 import prettier from 'eslint-config-prettier';
 
 /** Type-aware linting applies only to package/app source in a tsconfig. */
-const SOURCE = ['packages/**/*.ts', 'apps/**/*.ts'];
+const SOURCE = ['packages/**/*.{ts,mts,cts}', 'apps/**/*.{ts,mts,cts}'];
 
 export default tseslint.config(
   { ignores: ['**/dist/**', '**/out/**', '**/coverage/**', '**/*.tsbuildinfo'] },

@@ -9,88 +9,290 @@
     <title>ayd — demo runner</title>
     <style>
       :root {
-        color-scheme: light dark;
+        --bg: #0e1014;
+        --surface: #171a21;
+        --surface-2: #1e222b;
+        --border: #2a2f3a;
+        --text: #e7e9ee;
+        --muted: #9aa3b2;
+        --accent: #6d6cf5;
+        --accent-ink: #ffffff;
+        --admin: #ef4444;
+        --user: #22c55e;
+        --danger: #f26363;
+        --radius: 12px;
+        color-scheme: dark light;
+      }
+      @media (prefers-color-scheme: light) {
+        :root {
+          --bg: #f6f7f9;
+          --surface: #ffffff;
+          --surface-2: #f0f2f5;
+          --border: #e2e5ea;
+          --text: #1a1d23;
+          --muted: #5b6472;
+          --accent: #5b5bd6;
+        }
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        height: 100vh;
+        display: grid;
+        grid-template-rows: auto 1fr;
+        background: var(--bg);
+        color: var(--text);
         font:
-          14px -apple-system,
+          14px/1.5 -apple-system,
           BlinkMacSystemFont,
           'Segoe UI',
           Roboto,
           sans-serif;
       }
-      body {
-        margin: 0;
-        padding: 16px;
-        display: grid;
+
+      header {
+        display: flex;
+        align-items: center;
         gap: 12px;
-        grid-template-rows: auto auto auto 1fr;
-        height: 100vh;
-        box-sizing: border-box;
+        padding: 14px 20px;
+        border-bottom: 1px solid var(--border);
+        background: var(--surface);
       }
-      h1 {
+      .mark {
+        font-weight: 700;
+        letter-spacing: 0.02em;
         font-size: 16px;
-        margin: 0;
+      }
+      .mark .dot {
+        color: var(--accent);
+      }
+      .tagline {
+        color: var(--muted);
+        font-size: 12px;
       }
       #profile {
+        margin-left: auto;
         font-size: 12px;
-        opacity: 0.7;
+        color: var(--muted);
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        padding: 5px 11px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        background: var(--surface-2);
+        max-width: 46%;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+      #profile::before {
+        content: '';
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--muted);
+        flex: none;
+      }
+
+      main {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        grid-template-rows: auto 1fr;
+        gap: 16px;
+        padding: 16px 20px 20px;
+        min-height: 0;
+      }
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .card h2 {
+        margin: 0;
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+        color: var(--muted);
       }
       textarea {
+        flex: 1;
         width: 100%;
-        box-sizing: border-box;
-        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-        font-size: 12px;
-        padding: 8px;
+        resize: none;
+        background: var(--surface-2);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 9px;
+        padding: 10px 12px;
+        font:
+          12px/1.55 ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          monospace;
       }
-      .row {
+      textarea::placeholder {
+        color: var(--muted);
+      }
+      textarea:focus {
+        outline: none;
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
+      }
+      #description {
+        min-height: 64px;
+      }
+      #script {
+        min-height: 120px;
+      }
+      .actions {
         display: flex;
         gap: 8px;
         align-items: center;
       }
       button {
-        padding: 6px 14px;
-        border-radius: 8px;
+        font: inherit;
+        font-weight: 600;
+        font-size: 13px;
+        padding: 8px 16px;
+        border-radius: 9px;
+        border: 1px solid transparent;
         cursor: pointer;
+        transition:
+          filter 0.12s ease,
+          background 0.12s ease;
+      }
+      button:active {
+        transform: translateY(0.5px);
+      }
+      .btn-primary {
+        background: var(--accent);
+        color: var(--accent-ink);
+      }
+      .btn-primary:hover {
+        filter: brightness(1.08);
+      }
+      .btn-ghost {
+        background: transparent;
+        color: var(--muted);
+        border-color: var(--border);
+      }
+      .btn-ghost:hover {
+        color: var(--danger);
+        border-color: var(--danger);
+      }
+
+      .log-card {
+        grid-column: 1 / -1;
+        min-height: 0;
+        padding: 0;
+        overflow: hidden;
+      }
+      .log-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 14px;
+        border-bottom: 1px solid var(--border);
+      }
+      .log-head h2 {
+        margin: 0;
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+        color: var(--muted);
+      }
+      .legend {
+        margin-left: auto;
+        display: flex;
+        gap: 12px;
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .legend .ok {
+        color: var(--user);
+      }
+      .legend .err {
+        color: var(--danger);
       }
       #log {
         margin: 0;
+        height: 100%;
         overflow: auto;
-        background: rgba(127, 127, 127, 0.08);
-        border-radius: 8px;
-        padding: 10px;
-        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-        font-size: 12px;
+        padding: 12px 14px;
+        font:
+          12px/1.6 ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          monospace;
+        white-space: pre-wrap;
+      }
+      #log .line {
+        white-space: pre-wrap;
+      }
+      #log .ok {
+        color: var(--user);
+      }
+      #log .err {
+        color: var(--danger);
+      }
+      #log .hdr {
+        color: var(--text);
+        font-weight: 600;
+      }
+      #log:empty::before {
+        content: 'Run a script or plan a demo — events stream here.';
+        color: var(--muted);
       }
     </style>
   </head>
   <body>
-    <div>
-      <h1>ayd — demo runner</h1>
-      <div id="profile">loading profile…</div>
-    </div>
+    <header>
+      <span class="mark">ayd<span class="dot">.</span></span>
+      <span class="tagline">automate y_our demo(n)s</span>
+      <span id="profile">loading profile…</span>
+    </header>
 
-    <div>
-      <div class="row"><strong>Plan from a description</strong></div>
-      <textarea
-        id="description"
-        rows="2"
-        placeholder="e.g. admin grants a template, the scoped user refreshes and sees it appear"
-      ></textarea>
-      <div class="row">
-        <button id="plan">Plan &amp; Run</button><button id="stop">Stop</button>
-      </div>
-    </div>
+    <main>
+      <section class="card">
+        <h2>Plan from a description</h2>
+        <textarea
+          id="description"
+          placeholder="e.g. admin grants a template, the scoped user refreshes and sees it appear"
+        ></textarea>
+        <div class="actions">
+          <button id="plan" class="btn-primary">Plan &amp; Run</button>
+          <button id="stop" class="btn-ghost">Stop</button>
+        </div>
+      </section>
 
-    <div>
-      <div class="row"><strong>Or run a saved script (DemoScript JSON)</strong></div>
-      <textarea
-        id="script"
-        rows="6"
-        placeholder='{ "id": "...", "title": "...", "personas": [...], "steps": [...] }'
-      ></textarea>
-      <div class="row"><button id="run">Run Script</button></div>
-    </div>
+      <section class="card">
+        <h2>Run a saved script</h2>
+        <textarea
+          id="script"
+          placeholder='{ "id": "…", "title": "…", "personas": [ … ], "steps": [ … ] }'
+        ></textarea>
+        <div class="actions">
+          <button id="run" class="btn-primary">Run Script</button>
+        </div>
+      </section>
 
-    <pre id="log"></pre>
+      <section class="card log-card">
+        <div class="log-head">
+          <h2>Run log</h2>
+          <span class="legend"><span class="ok">✓ ok</span><span class="err">✗ failed</span></span>
+        </div>
+        <div id="log"></div>
+      </section>
+    </main>
 
     <script type="module" src="./renderer.js"></script>
   </body>

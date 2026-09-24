@@ -1,4 +1,4 @@
-import type { AydBridge } from '../preload.js';
+import type { AydBridge } from '../preload.mjs';
 
 export {};
 

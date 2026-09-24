@@ -60,14 +60,21 @@ const withDemoRun = async <T>(
   running = true;
   const controller = new AbortController();
   activeController = controller;
-  const browser = await chromium.launch({ headless: false, args: ['--start-maximized'] });
-  activeBrowser = browser;
-  const driver = createPlaywrightDriver({ browser, personas, baseUrl });
+  let browser: Browser | null = null;
+  let driver: PlaywrightDriver | null = null;
   try {
+    // Launch + driver creation are INSIDE the try so a launch failure (e.g. browsers
+    // not installed) still hits the finally and releases the lock — otherwise the app
+    // would be permanently stuck reporting "a run is already in progress".
+    browser = await chromium.launch({ headless: false, args: ['--start-maximized'] });
+    activeBrowser = browser;
+    driver = createPlaywrightDriver({ browser, personas, baseUrl });
     return await body(driver, controller.signal);
+  } catch (e) {
+    return { ok: false, error: [`run failed: ${String(e)}`] };
   } finally {
-    await driver.close();
-    await browser.close().catch(() => undefined);
+    await driver?.close();
+    await browser?.close().catch(() => undefined);
     activeBrowser = null;
     activeController = null;
     running = false;
@@ -139,7 +146,11 @@ const createWindow = (): void => {
     height: 720,
     title: 'ayd — demo runner',
     webPreferences: {
-      preload: join(here, 'preload.js'),
+      // .mjs, not .js: Electron picks the preload's module system from the file
+      // extension alone, so an ESM preload named .js is require()d and fails with
+      // "require() of ES Module … not supported" — leaving window.ayd undefined and
+      // the control UI silently dead. The source is preload.mts so tsc emits .mjs.
+      preload: join(here, 'preload.mjs'),
       // contextIsolation + no nodeIntegration are the load-bearing protections here.
       // sandbox is off because the ESM preload uses `import`; a sandboxed preload
       // must be CommonJS. Content is local/static, so the residual risk is low. To
