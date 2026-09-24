@@ -39,6 +39,18 @@ importers:
         specifier: ^3.0.0
         version: 3.2.7(@types/node@24.13.6)(supports-color@7.2.0)
 
+  apps/cli:
+    dependencies:
+      '@ayd/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@ayd/engine':
+        specifier: workspace:*
+        version: link:../../packages/engine
+      playwright:
+        specifier: ^1.49.0
+        version: 1.63.0
+
   apps/desktop:
     dependencies:
       '@ayd/core':

@@ -76,6 +76,18 @@ Then paste a description and hit **Plan & Run**, or paste a `DemoScript` JSON (s
 [`examples/hello.demo.json`](examples/hello.demo.json)) and hit **Run Script**. Live
 run events stream into the log. Opt-in browser test: `pnpm test:integration`.
 
+### Run without the UI (CLI)
+
+Same engine, no Electron — good for a quick check or CI:
+
+```bash
+pnpm --filter @ayd/engine exec playwright install chromium   # once
+pnpm --filter @ayd/cli build
+node apps/cli/dist/main.js examples/cpv2.demo.json            # headed, two-persona demo
+node apps/cli/dist/main.js examples/hello.demo.json --headless
+# flags: --headed | --headless | --base-url=URL | --pace=ms
+```
+
 ## Layout
 
 ```
@@ -83,6 +95,7 @@ packages/core/    framework-free domain: entities, use-cases, ports. Zero I/O, z
 packages/engine/  Playwright adapter — implements the BrowserDriver port + overlays.
 packages/planner/ Claude Agent SDK adapter — implements the AiPlanner port.
 apps/desktop/     Electron main + renderer — the composition root and control UI.
+apps/cli/         headless/headed CLI runner (a second composition root).
 examples/         sample DemoScripts.  config/  profile example (local profile is gitignored).
 docs/adr/         architecture decision records.
 ```

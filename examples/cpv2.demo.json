@@ -1,0 +1,57 @@
+{
+  "id": "cpv2-shaped",
+  "title": "Two-persona demo (CPV2-shaped)",
+  "description": "Mirrors the shape of a real Case-Permissions-V2 demo — an admin (red) and a scoped user (green) in isolated sessions, with captions, pointer, highlights, live persona switching, and an assertion. Runs against public pages so it needs no login; point it at your app with --base-url and relative paths instead.",
+  "personas": [
+    { "id": "admin", "label": "ADMIN", "color": "#ef4444" },
+    { "id": "user", "label": "USER · scoped", "color": "#22c55e" }
+  ],
+  "steps": [
+    {
+      "action": "caption",
+      "text": "ayd — Case Permissions V2 (reference shape)",
+      "sub": "admin configures · the scoped user sees only what they are granted"
+    },
+    {
+      "action": "navigate",
+      "personaId": "admin",
+      "path": "https://example.com",
+      "caption": "Admin window — red frame"
+    },
+    {
+      "action": "highlight",
+      "personaId": "admin",
+      "target": { "kind": "role", "role": "heading" },
+      "label": "admin view"
+    },
+    {
+      "action": "switchTo",
+      "personaId": "user",
+      "caption": "Switch to the scoped user — green frame"
+    },
+    {
+      "action": "navigate",
+      "personaId": "user",
+      "path": "https://example.org",
+      "caption": "User window"
+    },
+    {
+      "action": "highlight",
+      "personaId": "user",
+      "target": { "kind": "role", "role": "heading" },
+      "label": "user view"
+    },
+    {
+      "action": "expect",
+      "personaId": "user",
+      "target": { "kind": "role", "role": "heading" },
+      "toBe": "visible",
+      "label": "user sees their page"
+    },
+    {
+      "action": "caption",
+      "text": "Done",
+      "sub": "two isolated sessions, switched live, with overlays"
+    }
+  ]
+}
