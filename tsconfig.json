@@ -3,6 +3,7 @@
   "references": [
     { "path": "packages/core" },
     { "path": "packages/engine" },
-    { "path": "packages/planner" }
+    { "path": "packages/planner" },
+    { "path": "apps/desktop" }
   ]
 }

@@ -1,0 +1,32 @@
+{
+  "id": "hello",
+  "title": "Hello ayd",
+  "description": "A tiny, self-contained script that runs against a public page — good for a first smoke test.",
+  "personas": [{ "id": "user", "label": "USER", "color": "#22c55e" }],
+  "steps": [
+    {
+      "action": "caption",
+      "text": "ayd — a scripted demo",
+      "sub": "Playwright, with live on-screen overlays"
+    },
+    {
+      "action": "navigate",
+      "personaId": "user",
+      "path": "https://example.com",
+      "caption": "opening a page"
+    },
+    {
+      "action": "highlight",
+      "personaId": "user",
+      "target": { "kind": "role", "role": "heading" },
+      "label": "the headline"
+    },
+    {
+      "action": "expect",
+      "personaId": "user",
+      "target": { "kind": "text", "text": "Example Domain" },
+      "toBe": "visible",
+      "label": "page loaded"
+    }
+  ]
+}

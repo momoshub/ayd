@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'unsafe-inline'"
+    />
+    <title>ayd — demo runner</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font:
+          14px -apple-system,
+          BlinkMacSystemFont,
+          'Segoe UI',
+          Roboto,
+          sans-serif;
+      }
+      body {
+        margin: 0;
+        padding: 16px;
+        display: grid;
+        gap: 12px;
+        grid-template-rows: auto auto auto 1fr;
+        height: 100vh;
+        box-sizing: border-box;
+      }
+      h1 {
+        font-size: 16px;
+        margin: 0;
+      }
+      #profile {
+        font-size: 12px;
+        opacity: 0.7;
+      }
+      textarea {
+        width: 100%;
+        box-sizing: border-box;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 12px;
+        padding: 8px;
+      }
+      .row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      button {
+        padding: 6px 14px;
+        border-radius: 8px;
+        cursor: pointer;
+      }
+      #log {
+        margin: 0;
+        overflow: auto;
+        background: rgba(127, 127, 127, 0.08);
+        border-radius: 8px;
+        padding: 10px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <div>
+      <h1>ayd — demo runner</h1>
+      <div id="profile">loading profile…</div>
+    </div>
+
+    <div>
+      <div class="row"><strong>Plan from a description</strong></div>
+      <textarea
+        id="description"
+        rows="2"
+        placeholder="e.g. admin grants a template, the scoped user refreshes and sees it appear"
+      ></textarea>
+      <div class="row">
+        <button id="plan">Plan &amp; Run</button><button id="stop">Stop</button>
+      </div>
+    </div>
+
+    <div>
+      <div class="row"><strong>Or run a saved script (DemoScript JSON)</strong></div>
+      <textarea
+        id="script"
+        rows="6"
+        placeholder='{ "id": "...", "title": "...", "personas": [...], "steps": [...] }'
+      ></textarea>
+      <div class="row"><button id="run">Run Script</button></div>
+    </div>
+
+    <pre id="log"></pre>
+
+    <script type="module" src="./renderer.js"></script>
+  </body>
+</html>

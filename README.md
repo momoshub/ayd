@@ -24,16 +24,16 @@ API key required.
 
 ## Status
 
-Foundation in place and green under the full quality gate:
+Green under the full quality gate (46 unit tests + an opt-in browser integration test):
 
-| Layer                                     | Package        | State          |
-| ----------------------------------------- | -------------- | -------------- |
-| Domain + use-cases + ports (pure, tested) | `@ayd/core`    | ✅ implemented |
-| Playwright browser driver + overlays      | `@ayd/engine`  | ⏳ planned     |
-| Claude Agent SDK planner                  | `@ayd/planner` | ⏳ planned     |
-| Electron shell + control UI               | `apps/desktop` | ⏳ planned     |
+| Layer                                     | Package        | State                               |
+| ----------------------------------------- | -------------- | ----------------------------------- |
+| Domain + use-cases + ports (pure, tested) | `@ayd/core`    | ✅ implemented                      |
+| Playwright browser driver + overlays      | `@ayd/engine`  | ✅ implemented (+ integration test) |
+| Claude Agent SDK planner                  | `@ayd/planner` | ✅ implemented                      |
+| Electron shell + control UI               | `apps/desktop` | ✅ implemented (run needs binaries) |
 
-See the phase plan in [`docs/architecture.md`](docs/architecture.md).
+Remaining: recovery on selector drift and polish (P4–P5 in [`docs/architecture.md`](docs/architecture.md)).
 
 ## Quickstart
 
@@ -53,13 +53,37 @@ Per-task scripts:
 | `pnpm lint` / `pnpm lint:fix`   | eslint (flat config, type-aware)         |
 | `pnpm format`                   | prettier                                 |
 
+## Run the app
+
+The app drives real browser windows and (for plan mode) uses your Claude Code login,
+so a first run needs three things beyond `pnpm install`:
+
+```bash
+# 1. the browser + Electron binaries (declined at install to keep it light)
+pnpm --filter @ayd/engine exec playwright install chromium
+pnpm --filter @ayd/desktop exec electron --version   # triggers Electron's binary fetch
+# (plan mode also needs the Claude Code CLI, logged in: `claude login`)
+
+# 2. a local, gitignored demo profile (names the target app + personas — SENSITIVE)
+mkdir -p config/local && cp config/profile.example.json config/local/profile.json
+
+# 3. build and launch
+pnpm --filter @ayd/desktop build
+pnpm --filter @ayd/desktop start
+```
+
+Then paste a description and hit **Plan & Run**, or paste a `DemoScript` JSON (see
+[`examples/hello.demo.json`](examples/hello.demo.json)) and hit **Run Script**. Live
+run events stream into the log. Opt-in browser test: `pnpm test:integration`.
+
 ## Layout
 
 ```
 packages/core/    framework-free domain: entities, use-cases, ports. Zero I/O, zero vendor SDKs.
-packages/engine/  Playwright adapter — implements the BrowserDriver port.        (planned)
-packages/planner/ Claude Agent SDK adapter — implements the AiPlanner port.      (planned)
-apps/desktop/     Electron main + renderer — the composition root and control UI. (planned)
+packages/engine/  Playwright adapter — implements the BrowserDriver port + overlays.
+packages/planner/ Claude Agent SDK adapter — implements the AiPlanner port.
+apps/desktop/     Electron main + renderer — the composition root and control UI.
+examples/         sample DemoScripts.  config/  profile example (local profile is gitignored).
 docs/adr/         architecture decision records.
 ```
 

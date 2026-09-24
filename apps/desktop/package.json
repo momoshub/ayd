@@ -1,0 +1,21 @@
+{
+  "name": "@ayd/desktop",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Electron shell: control UI + composition root wiring the engine, planner, and use-cases.",
+  "main": "./dist/main.js",
+  "scripts": {
+    "build": "tsc -b && mkdir -p dist/renderer && cp src/renderer/index.html dist/renderer/",
+    "start": "electron ."
+  },
+  "dependencies": {
+    "@ayd/core": "workspace:*",
+    "@ayd/engine": "workspace:*",
+    "@ayd/planner": "workspace:*",
+    "playwright": "^1.49.0"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0"
+  }
+}

@@ -18,3 +18,8 @@ export type { AiPlanner, PlanRequest, PlannerError } from './ports/ai-planner.js
 
 // Application
 export { runScript, type RunDeps } from './application/run-script.js';
+export {
+  planAndRun,
+  type PlanAndRunDeps,
+  type PlanAndRunOutput,
+} from './application/plan-and-run.js';

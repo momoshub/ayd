@@ -5,9 +5,10 @@ packages:
 # Vetted packages allowed to run install lifecycle scripts (pnpm blocks all by
 # default as a supply-chain guard). esbuild builds its native binary for vitest;
 # the TS7 native compiler fetches its platform binary. Playwright's browser
-# download is declined here to keep installs light — browsers are installed
-# on-demand for integration tests and the desktop app (see packages/engine).
+# download and Electron's binary download are declined here to keep installs
+# light — they're fetched on-demand for integration tests and the desktop app.
 allowBuilds:
   esbuild: true
   '@typescript/native-preview': true
   playwright: false
+  electron: false
