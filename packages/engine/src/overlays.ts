@@ -59,6 +59,35 @@ export const OVERLAY_RUNTIME = String.raw`
     c.id = '__ayd_cursor';
     c.innerHTML = '<svg width="40" height="40" viewBox="0 0 28 28"><path d="M7 4 L7 24 L12.5 18.5 L16 26 L19 24.7 L15.5 17.3 L23 17.3 Z" fill="#fff" stroke="#111" stroke-width="1.6" stroke-linejoin="round"/></svg>';
   };
+  // Keyframes for the animated "working" gradient + pulsing dot, injected once.
+  const ensureStyle = () => {
+    if (document.getElementById('__ayd_style')) return;
+    const st = document.createElement('style');
+    st.id = '__ayd_style';
+    st.textContent =
+      '@keyframes aydflow{0%{background-position:0% 50%}100%{background-position:300% 50%}}' +
+      '@keyframes aydpulse{0%,100%{opacity:.45}50%{opacity:1}}';
+    (document.head || document.documentElement).appendChild(st);
+  };
+  // Drag an element by a handle. Switches to left/top on first drag so it moves freely.
+  const makeDraggable = (elm, handle) => {
+    let ox = 0, oy = 0, sx = 0, sy = 0, dragging = false;
+    handle.style.cursor = 'move';
+    handle.addEventListener('mousedown', (e) => {
+      dragging = true;
+      const r = elm.getBoundingClientRect();
+      ox = r.left; oy = r.top; sx = e.clientX; sy = e.clientY;
+      elm.style.left = ox + 'px'; elm.style.top = oy + 'px';
+      elm.style.right = 'auto'; elm.style.bottom = 'auto'; elm.style.transform = 'none';
+      e.preventDefault();
+    }, true);
+    window.addEventListener('mousemove', (e) => {
+      if (!dragging) return;
+      elm.style.left = (ox + e.clientX - sx) + 'px';
+      elm.style.top = (oy + e.clientY - sy) + 'px';
+    }, true);
+    window.addEventListener('mouseup', () => { dragging = false; }, true);
+  };
   window.__ayd = {
     // Glide the AI pointer to (x, y). Called by the driver before it acts, so the
     // pointer visibly travels to the target on its own, decoupled from the real mouse.
@@ -84,19 +113,23 @@ export const OVERLAY_RUNTIME = String.raw`
       ensureCursor();
     },
     caption(text, sub, anchor) {
+      ensureStyle();
       let cap = document.getElementById('__ayd_cap');
+      const fresh = !cap;
       if (!cap) {
         cap = el('div', {}, document.body); cap.id = '__ayd_cap';
         cap.innerHTML = '<div id="__ayd_cap_t" style="font-weight:600"></div><div id="__ayd_cap_s" style="font-size:15px;opacity:.78;margin-top:7px"></div>';
       }
       Object.assign(cap.style, {
         position: 'fixed', left: '50%', transform: 'translateX(-50%)', zIndex: String(Z + 7),
-        background: 'rgba(15,17,21,0.55)', border: '1px solid rgba(255,255,255,0.14)',
-        backdropFilter: 'blur(6px)', webkitBackdropFilter: 'blur(6px)', color: '#fff', padding: '16px 30px',
+        // ~30% opaque, blurred so it stays legible; draggable, so it can be moved aside.
+        background: 'rgba(15,17,21,0.30)', border: '1px solid rgba(255,255,255,0.14)',
+        backdropFilter: 'blur(8px)', webkitBackdropFilter: 'blur(8px)', color: '#fff', padding: '16px 30px',
         borderRadius: '16px', textAlign: 'center', maxWidth: '70vw', boxShadow: '0 10px 40px rgba(0,0,0,0.35)',
-        pointerEvents: 'none', fontFamily: '-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif',
+        pointerEvents: 'auto', fontFamily: '-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif',
         top: anchor === 'top' ? '28px' : 'auto', bottom: anchor === 'top' ? 'auto' : '38px',
       });
+      if (fresh) makeDraggable(cap, cap);
       const t = document.getElementById('__ayd_cap_t'), s = document.getElementById('__ayd_cap_s');
       t.style.fontSize = '22px'; t.textContent = text;
       s.textContent = sub || ''; s.style.display = sub ? 'block' : 'none';
@@ -123,16 +156,28 @@ export const OVERLAY_RUNTIME = String.raw`
     chat: {
       mount() {
         if (document.getElementById('__ayd_chat')) return;
+        ensureStyle();
         const panel = el('div', {
-          position: 'fixed', right: '20px', bottom: '20px', width: '340px', maxHeight: '62vh',
+          position: 'fixed', right: '20px', bottom: '20px', width: '340px', height: '400px',
+          minWidth: '260px', minHeight: '180px', maxWidth: '80vw', maxHeight: '85vh', resize: 'both',
           display: 'flex', flexDirection: 'column', zIndex: String(Z + 8), color: '#e8eaf0',
-          background: 'rgba(18,20,27,0.92)', borderRadius: '14px', border: '1px solid rgba(255,255,255,0.12)',
-          boxShadow: '0 18px 50px rgba(0,0,0,0.5)', backdropFilter: 'blur(10px)', webkitBackdropFilter: 'blur(10px)',
+          // ~30% opaque, blurred; draggable by the header, resizable from the bottom-right corner.
+          background: 'rgba(18,20,27,0.30)', borderRadius: '14px', border: '1px solid rgba(255,255,255,0.14)',
+          boxShadow: '0 18px 50px rgba(0,0,0,0.5)', backdropFilter: 'blur(12px)', webkitBackdropFilter: 'blur(12px)',
           font: '13px/1.5 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif', overflow: 'hidden',
         }, document.documentElement);
         panel.id = '__ayd_chat';
+        // Animated gradient "working" strip across the top, hidden until the agent is busy.
+        const prog = el('div', {
+          height: '3px', flex: 'none', display: 'none',
+          background: 'linear-gradient(90deg,#6d6cf5,#8b7cf6,#22d3ee,#6d6cf5)', backgroundSize: '300% 100%',
+          animation: 'aydflow 2.2s linear infinite',
+        }, panel);
+        prog.id = '__ayd_prog';
         const head = el('div', { display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.08)' }, panel);
-        el('span', { width: '8px', height: '8px', borderRadius: '50%', background: '#34d399', flex: 'none' }, head);
+        const dot = el('span', { width: '8px', height: '8px', borderRadius: '50%', background: '#34d399', flex: 'none' }, head);
+        dot.id = '__ayd_dot';
+        makeDraggable(panel, head);
         const title = el('span', { fontWeight: '700', letterSpacing: '.02em' }, head);
         title.textContent = 'ayd agent';
         const min = el('button', { marginLeft: 'auto', background: 'transparent', border: '0', color: '#98a1b3', cursor: 'pointer', fontSize: '18px', lineHeight: '1', padding: '0 4px' }, head);
@@ -189,7 +234,27 @@ export const OVERLAY_RUNTIME = String.raw`
           }, logEl);
           node.textContent = msg.text || '';
         }
+        this.setBusy(kind !== 'done' && kind !== 'error');
         logEl.scrollTop = logEl.scrollHeight;
+      },
+      // Drive the animated "working" gradient (top strip when expanded, the button when
+      // minimized) plus the pulsing status dot.
+      setBusy(b) {
+        const prog = document.getElementById('__ayd_prog');
+        if (prog) prog.style.display = b ? 'block' : 'none';
+        const dot = document.getElementById('__ayd_dot');
+        if (dot) dot.style.animation = b ? 'aydpulse 1.2s ease-in-out infinite' : 'none';
+        const btn = document.getElementById('__ayd_chat_btn');
+        if (btn) {
+          if (b) {
+            btn.style.background = 'linear-gradient(90deg,#6d6cf5,#8b7cf6,#22d3ee,#6d6cf5)';
+            btn.style.backgroundSize = '300% 100%';
+            btn.style.animation = 'aydflow 2.2s linear infinite';
+          } else {
+            btn.style.background = '#6d6cf5';
+            btn.style.animation = 'none';
+          }
+        }
       },
       show() {
         this.mount();

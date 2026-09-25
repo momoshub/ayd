@@ -21,6 +21,7 @@ declare global {
         show(): void;
         hide(): void;
         setVisible(visible: boolean): void;
+        setBusy(busy: boolean): void;
       };
     };
     /** Exposed by the driver via Playwright bindings; the in-page box calls it to send. */

@@ -74,7 +74,7 @@ cd apps/tui && bun start        # builds the workspace packages, then launches
 imports the built packages), so a fresh clone just works. `bun dev` skips that.
 
 Type an instruction and press Enter — the agent opens the browser and drives it live.
-Commands (also `/help`):
+Type `/` for **command autocomplete** (a live palette; ↑/↓ to pick, Tab to complete). Commands (also `/help`):
 
 - `/plan <desc>` compile + run a demo from prose · `/run <path>` run a saved DemoScript
 - `/sessions` list past runs · `/view <id>` print one · `/resume <id>` reopen one (the agent re-achieves its prior state, then continues)
