@@ -22,6 +22,22 @@ export const IPC = {
   endChat: 'ayd:end-chat',
   /** main → renderer: a streamed AgentMessage from the live session. */
   agentMessage: 'ayd:agent-message',
+  /** renderer → main: read the feature-map/memory for the current app. */
+  getMemory: 'ayd:get-memory',
+  /** renderer → main: show or hide the in-page floating chat box. */
+  setInPageChat: 'ayd:set-in-page-chat',
+  /** renderer → main: resume the agent after a stop, via code (no prompt). */
+  resumeChat: 'ayd:resume-chat',
+  /** main → renderer: per-tab progress for the open persona windows. */
+  tabUpdate: 'ayd:tab-update',
+  /** renderer → main: list saved conversations. */
+  listSessions: 'ayd:list-sessions',
+  /** renderer → main: load one saved conversation transcript. */
+  getSession: 'ayd:get-session',
+  /** renderer → main: save/update the Claude Code token (encrypted). */
+  saveToken: 'ayd:save-token',
+  /** renderer → main: whether a Claude Code token is stored. */
+  getAuthStatus: 'ayd:get-auth-status',
 } as const;
 
 /** Presenter that forwards run events to a renderer over `send(IPC.event, ...)`. */

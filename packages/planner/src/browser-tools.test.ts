@@ -45,6 +45,7 @@ describe('BROWSER_TOOL_NAMES', () => {
       'waitFor',
       'expect',
       'caption',
+      'observe',
     ]) {
       expect(BROWSER_TOOL_NAMES).toContain(name);
     }

@@ -16,11 +16,17 @@ they're watching.
   live call: repeatable, no surprises.
 - **Plan from prose** — hand it a description; the AI planner explores the app and
   _compiles_ a reviewable script, which you then run deterministically.
+- **Chat live** — steer a running agent from the control window _or_ from a floating,
+  hidable box injected into the driven page itself. Stop and Continue are code-driven
+  buttons, not prompts. Per-tab progress shows what each persona window is doing.
+- **Remember** — a per-app feature-map/memory: the agent recalls what it learned and
+  can investigate the app (observe + record) to build it. Conversations are saved and
+  browsable.
 - **Recover** — when a selector drifts mid-run, the planner is asked for the next
   action instead of the demo dying.
 
-The AI planner authenticates through your **Claude Code login** (OAuth) — no separate
-API key required.
+The AI authenticates through your **Claude Code login** (OAuth) or a token saved in
+Settings — no key in the repo.
 
 ## Status
 

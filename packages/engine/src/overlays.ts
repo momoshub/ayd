@@ -107,6 +107,95 @@ export const OVERLAY_RUNTIME = String.raw`
       }
       setTimeout(() => { h.style.opacity = '0'; setTimeout(() => h.remove(), 400); }, 1800);
     },
+    // A floating, hidable chat box injected into the page itself, so the operator can
+    // steer the agent without leaving the demo window. Two-way: it renders agent
+    // messages pushed from Node and sends operator input back via window.__aydChatSend.
+    chat: {
+      mount() {
+        if (document.getElementById('__ayd_chat')) return;
+        const panel = el('div', {
+          position: 'fixed', right: '20px', bottom: '20px', width: '340px', maxHeight: '62vh',
+          display: 'flex', flexDirection: 'column', zIndex: String(Z + 8), color: '#e8eaf0',
+          background: 'rgba(18,20,27,0.92)', borderRadius: '14px', border: '1px solid rgba(255,255,255,0.12)',
+          boxShadow: '0 18px 50px rgba(0,0,0,0.5)', backdropFilter: 'blur(10px)', webkitBackdropFilter: 'blur(10px)',
+          font: '13px/1.5 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif', overflow: 'hidden',
+        }, document.documentElement);
+        panel.id = '__ayd_chat';
+        const head = el('div', { display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.08)' }, panel);
+        el('span', { width: '8px', height: '8px', borderRadius: '50%', background: '#34d399', flex: 'none' }, head);
+        const title = el('span', { fontWeight: '700', letterSpacing: '.02em' }, head);
+        title.textContent = 'ayd agent';
+        const min = el('button', { marginLeft: 'auto', background: 'transparent', border: '0', color: '#98a1b3', cursor: 'pointer', fontSize: '18px', lineHeight: '1', padding: '0 4px' }, head);
+        min.textContent = '–'; min.title = 'Hide';
+        min.onclick = () => window.__ayd.chat.hide();
+        const logEl = el('div', { flex: '1', overflow: 'auto', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px', minHeight: '80px' }, panel);
+        logEl.id = '__ayd_chat_log';
+        const foot = el('div', { display: 'flex', gap: '8px', padding: '10px', borderTop: '1px solid rgba(255,255,255,0.08)' }, panel);
+        const input = el('textarea', {
+          flex: '1', resize: 'none', height: '38px', maxHeight: '96px', background: 'rgba(255,255,255,0.06)', color: '#e8eaf0',
+          border: '1px solid rgba(255,255,255,0.12)', borderRadius: '9px', padding: '8px 10px', font: 'inherit', outline: 'none',
+        }, foot);
+        input.id = '__ayd_chat_input'; input.placeholder = 'Message the agent…';
+        const send = el('button', { background: '#6d6cf5', color: '#fff', border: '0', borderRadius: '9px', padding: '0 14px', fontWeight: '600', cursor: 'pointer' }, foot);
+        send.textContent = 'Send';
+        const doSend = () => {
+          const t = input.value.trim(); if (!t) return;
+          window.__ayd.chat.push({ kind: 'you', text: t });
+          try { if (typeof window.__aydChatSend === 'function') window.__aydChatSend(t); } catch (e) {}
+          input.value = '';
+        };
+        send.onclick = doSend;
+        input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSend(); } });
+        const btn = el('button', {
+          position: 'fixed', right: '20px', bottom: '20px', zIndex: String(Z + 8), display: 'none',
+          width: '52px', height: '52px', borderRadius: '50%', border: '0', cursor: 'pointer',
+          background: '#6d6cf5', color: '#fff', fontSize: '22px', boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
+        }, document.documentElement);
+        btn.id = '__ayd_chat_btn'; btn.textContent = '💬'; btn.title = 'Chat with the agent';
+        btn.onclick = () => window.__ayd.chat.show();
+      },
+      push(msg) {
+        this.mount();
+        const logEl = document.getElementById('__ayd_chat_log');
+        if (!logEl) return;
+        const kind = (msg && msg.kind) || 'status';
+        let node;
+        if (kind === 'action') {
+          node = el('div', { alignSelf: 'flex-start', maxWidth: '90%', font: '11px/1.4 ui-monospace,Menlo,monospace', color: '#98a1b3', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', padding: '4px 8px' }, logEl);
+          node.textContent = '› ' + (msg.tool || '') + (msg.detail ? ' ' + msg.detail : '');
+        } else if (kind === 'status') {
+          node = el('div', { alignSelf: 'center', fontSize: '11px', color: '#6b7385' }, logEl);
+          node.textContent = msg.text || '';
+        } else if (kind === 'done') {
+          node = el('div', { alignSelf: 'center', width: '100%', textAlign: 'center', fontSize: '11px', color: '#6b7385', borderTop: '1px dashed rgba(255,255,255,0.12)', paddingTop: '6px' }, logEl);
+          node.textContent = 'turn complete';
+        } else {
+          const you = kind === 'you', errk = kind === 'error';
+          node = el('div', {
+            alignSelf: you ? 'flex-end' : 'flex-start', maxWidth: '86%', padding: '7px 10px', borderRadius: '12px',
+            whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+            background: you ? '#6d6cf5' : errk ? 'rgba(242,99,99,0.18)' : 'rgba(255,255,255,0.08)',
+            color: errk ? '#f26363' : '#fff',
+          }, logEl);
+          node.textContent = msg.text || '';
+        }
+        logEl.scrollTop = logEl.scrollHeight;
+      },
+      show() {
+        this.mount();
+        const p = document.getElementById('__ayd_chat'), b = document.getElementById('__ayd_chat_btn');
+        if (p) p.style.display = 'flex';
+        if (b) b.style.display = 'none';
+        const i = document.getElementById('__ayd_chat_input');
+        if (i) i.focus();
+      },
+      hide() {
+        const p = document.getElementById('__ayd_chat'), b = document.getElementById('__ayd_chat_btn');
+        if (p) p.style.display = 'none';
+        if (b) b.style.display = 'block';
+      },
+      setVisible(v) { v ? this.show() : this.hide(); },
+    },
   };
 })();
 `;

@@ -1,4 +1,14 @@
-import type { BrowserDriver, Persona, Selector } from '@ayd/core';
+import type {
+  AgentMessage,
+  BrowserDriver,
+  InPageChat,
+  PageObservation,
+  PageObserver,
+  Persona,
+  Selector,
+  TabInfo,
+  TabReporter,
+} from '@ayd/core';
 import type { Browser, BrowserContext, Locator, Page } from 'playwright';
 import { toLocatorCall } from './locator.js';
 import { captionAnchor, OVERLAY_RUNTIME } from './overlays.js';
@@ -12,7 +22,7 @@ export interface PlaywrightDriverConfig {
   readonly pointerSteps?: number;
 }
 
-export interface PlaywrightDriver extends BrowserDriver {
+export interface PlaywrightDriver extends BrowserDriver, PageObserver, InPageChat, TabReporter {
   close(): Promise<void>;
 }
 
@@ -38,6 +48,10 @@ export const createPlaywrightDriver = (config: PlaywrightDriverConfig): Playwrig
   const pointerSteps = config.pointerSteps ?? 24;
   const personaById = new Map(config.personas.map((p) => [p.id, p]));
   const sessions = new Map<string, Session>();
+  // Set by the desktop before the agent runs; the in-page box calls this on send.
+  // Read at call time (a `let`) so it can be registered after contexts are created.
+  let operatorHandler: ((text: string) => void) | undefined;
+  let chatVisible = false;
 
   const persona = (personaId: string): Persona => {
     const p = personaById.get(personaId);
@@ -49,13 +63,25 @@ export const createPlaywrightDriver = (config: PlaywrightDriverConfig): Playwrig
     const existing = sessions.get(personaId);
     if (existing) return existing;
     const context = await config.browser.newContext({ viewport: null });
+    // exposeBinding before addInitScript so window.__aydChatSend exists when the
+    // overlay wires the in-page box on load.
+    await context.exposeBinding('__aydChatSend', (_source, text: unknown) => {
+      operatorHandler?.(String(text));
+    });
     await context.addInitScript(OVERLAY_RUNTIME);
     const page = await context.newPage();
     const session: Session = { context, page };
     sessions.set(personaId, session);
     await paintFrame(session, persona(personaId));
+    if (chatVisible) await showChat(session).catch(() => undefined);
     return session;
   };
+
+  const showChat = (session: Session): Promise<void> =>
+    session.page
+      .evaluate(() => window.__ayd?.chat?.setVisible(true))
+      .then(() => undefined)
+      .catch(() => undefined);
 
   const paintFrame = async (session: Session, p: Persona): Promise<void> => {
     await session.page
@@ -177,6 +203,82 @@ export const createPlaywrightDriver = (config: PlaywrightDriverConfig): Playwrig
             .evaluate(([t, s]) => window.__ayd?.caption(t, s, 'bottom'), [text, sub ?? ''] as const)
             .catch(() => undefined),
         ),
+      );
+    },
+
+    async observe(personaId): Promise<PageObservation> {
+      const session = await ensureSession(personaId);
+      return session.page
+        .evaluate(() => {
+          const clean = (el: Element): string => (el.textContent ?? '').replace(/\s+/g, ' ').trim();
+          const uniq = (values: string[]): string[] => [...new Set(values.filter(Boolean))];
+          const headings = uniq(
+            Array.from(document.querySelectorAll('h1,h2,h3'), (el) => clean(el).slice(0, 100)),
+          ).slice(0, 30);
+          const links = Array.from(document.querySelectorAll('a[href]'), (a) => ({
+            text: clean(a).slice(0, 80),
+            href: a.getAttribute('href') ?? '',
+          }))
+            .filter((l) => l.text !== '')
+            .slice(0, 50);
+          const controls = uniq(
+            Array.from(
+              document.querySelectorAll(
+                'button,[role="button"],[role="menuitem"],[role="tab"],input,select,textarea',
+              ),
+              (el) =>
+                (
+                  clean(el) ||
+                  el.getAttribute('aria-label') ||
+                  el.getAttribute('placeholder') ||
+                  el.getAttribute('name') ||
+                  ''
+                ).slice(0, 60),
+            ),
+          ).slice(0, 60);
+          return { url: location.href, title: document.title, headings, links, controls };
+        })
+        .catch(() => ({ url: '', title: '', headings: [], links: [], controls: [] }));
+    },
+
+    onOperatorMessage(cb) {
+      operatorHandler = cb;
+    },
+
+    async push(message: AgentMessage) {
+      // Flatten to a plain, serializable shape the injected box understands.
+      const payload = {
+        kind: message.kind,
+        ...('text' in message && message.text !== undefined ? { text: message.text } : {}),
+        ...('tool' in message ? { tool: message.tool } : {}),
+        ...('detail' in message && message.detail !== undefined ? { detail: message.detail } : {}),
+      };
+      await Promise.all(
+        [...sessions.values()].map((session) =>
+          session.page.evaluate((m) => window.__ayd?.chat?.push(m), payload).catch(() => undefined),
+        ),
+      );
+    },
+
+    async setVisible(visible) {
+      chatVisible = visible;
+      await Promise.all(
+        [...sessions.values()].map((session) =>
+          session.page
+            .evaluate((v) => window.__ayd?.chat?.setVisible(v), visible)
+            .catch(() => undefined),
+        ),
+      );
+    },
+
+    async listTabs(): Promise<readonly TabInfo[]> {
+      return Promise.all(
+        [...sessions.entries()].map(async ([personaId, session]) => ({
+          personaId,
+          label: persona(personaId).label,
+          url: session.page.url(),
+          title: await session.page.title().catch(() => ''),
+        })),
       );
     },
 

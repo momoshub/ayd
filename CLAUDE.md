@@ -24,8 +24,10 @@ coloured frame per persona. Demos come from a **script** (deterministic) or are
    Never commit red.
 4. **Nothing sensitive in the repo.** No credentials, staging URLs, tokens, or real demo
    accounts — ever. They live in gitignored local config (`.env`, `config/local/`) or, for
-   the desktop profile, the OS user-data dir (edited in-app Settings). The AI planner uses
-   the user's Claude Code OAuth, not a committed key.
+   the desktop, the OS user-data dir: the profile, the feature-map/memory, saved
+   conversations, and the Claude Code token (encrypted via Electron safeStorage). All are
+   edited in-app, never committed. The AI uses the user's Claude Code OAuth or that saved
+   token, not a committed key.
 
 ## Commands
 

@@ -5,9 +5,12 @@ import type {
   AgentSession,
   BrowserDriver,
   InteractiveAgent,
+  PageObserver,
   StartAgentRequest,
 } from '@ayd/core';
+import { summarizeMemory } from '@ayd/core';
 import { createBrowserMcpServer } from './browser-tools.js';
+import { createMemoryMcpServer, type AgentMemory } from './memory-tools.js';
 import { DISALLOWED_TOOLS } from './claude-planner.js';
 
 /** The slice of an SDK message we read; `query` satisfies this structurally. */
@@ -39,7 +42,9 @@ export type InteractiveQueryFn = (params: {
 }) => ControllableQuery;
 
 export interface InteractiveAgentOptions {
-  readonly driver: BrowserDriver;
+  readonly driver: BrowserDriver & PageObserver;
+  /** When provided, the agent recalls/records the app's feature-map + interactions. */
+  readonly memory?: AgentMemory;
   readonly model?: string;
   /** Injected for tests; defaults to the real Claude Agent SDK `query`. */
   readonly runQuery?: InteractiveQueryFn;
@@ -95,7 +100,7 @@ const emitFrom = (m: AgentSdkMessage, emit: (msg: AgentMessage) => void): void =
       if (block.type === 'text' && block.text !== undefined && block.text.trim() !== '') {
         emit({ kind: 'assistant', text: block.text });
       } else if (block.type === 'tool_use' && block.name !== undefined) {
-        const tool = block.name.replace(/^mcp__ayd__/, '');
+        const tool = block.name.replace(/^mcp__[a-z]+__/, '');
         const detail = summarize(block.input);
         emit(detail !== undefined ? { kind: 'action', tool, detail } : { kind: 'action', tool });
       }
@@ -115,6 +120,7 @@ export const createInteractiveAgent = (opts: InteractiveAgentOptions): Interacti
   const runQuery: InteractiveQueryFn = opts.runQuery ?? query;
   return {
     start(request: StartAgentRequest): AgentSession {
+      const memory = opts.memory;
       const personaList = request.personas.map((p) => `${p.id} ("${p.label}")`).join(', ');
       const options: Options = {
         systemPrompt: [
@@ -122,10 +128,22 @@ export const createInteractiveAgent = (opts: InteractiveAgentOptions): Interacti
           `Personas (isolated browser windows): ${personaList}.`,
           `${request.baseUrl !== undefined ? `App base URL: ${request.baseUrl}. ` : ''}Use relative paths in navigate.`,
           'Narrate briefly, caption before a big move, switchTo when you change persona, and prefer role/text/label selectors.',
+          'Use observe to look at a page before acting or when exploring unfamiliar parts of the app.',
+          ...(memory
+            ? [
+                'You have a persistent memory of this app (mcp__mem__*). Call recallMemory when unsure,',
+                'recordFeature when you discover a page/workflow/control, and recordInteraction to log notable outcomes.',
+                'If asked to investigate, explore with observe + navigate and build the feature map as you go.',
+                `\nWhat you already know about this app:\n${summarizeMemory(memory.current())}`,
+              ]
+            : []),
           'The operator may interject or interrupt; adapt to their latest message.',
         ].join('\n'),
-        mcpServers: { ayd: createBrowserMcpServer(opts.driver) },
-        allowedTools: ['mcp__ayd'],
+        mcpServers: {
+          ayd: createBrowserMcpServer(opts.driver),
+          ...(memory ? { mem: createMemoryMcpServer(memory) } : {}),
+        },
+        allowedTools: memory ? ['mcp__ayd', 'mcp__mem'] : ['mcp__ayd'],
         disallowedTools: [...DISALLOWED_TOOLS],
         settingSources: [],
         strictMcpConfig: true,
@@ -136,6 +154,9 @@ export const createInteractiveAgent = (opts: InteractiveAgentOptions): Interacti
       const input = createInputStream(request.firstMessage);
       const q = runQuery({ prompt: input.iterable, options });
 
+      // Reliably log the operator's opening ask so the interaction history survives
+      // even if the agent never calls recordInteraction itself.
+      if (memory) void memory.note(`operator: ${request.firstMessage}`).catch(() => undefined);
       request.onMessage({ kind: 'status', text: 'session started' });
       void (async () => {
         try {
@@ -152,7 +173,13 @@ export const createInteractiveAgent = (opts: InteractiveAgentOptions): Interacti
         },
         interrupt: async () => {
           await q.interrupt().catch(() => undefined);
-          request.onMessage({ kind: 'status', text: 'interrupted — send a message to continue' });
+          request.onMessage({ kind: 'status', text: 'stopped — press Continue or send a message' });
+        },
+        // Code-driven continue: feed a fixed continuation instruction, not an operator
+        // prompt, so there is no "you:" echo and the model just carries on.
+        resume: () => {
+          request.onMessage({ kind: 'status', text: 'resuming' });
+          input.push('Continue with the current task.');
         },
         end: async () => {
           input.close();

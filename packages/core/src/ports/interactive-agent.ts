@@ -12,8 +12,13 @@ export type AgentMessage =
 export interface AgentSession {
   /** Push a chat message mid-run (queued if a turn is in flight). */
   send(text: string): void;
-  /** Stop the current turn's work now; the session stays open to continue. */
+  /**
+   * Stop the current turn's work now via code (not by prompting the model). The
+   * session stays open; call resume() or send() to carry on.
+   */
   interrupt(): Promise<void>;
+  /** Resume after an interrupt via code — carries on the task without an operator prompt. */
+  resume(): void;
   /** End the session and release resources. */
   end(): Promise<void>;
 }

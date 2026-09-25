@@ -79,8 +79,9 @@ script performs.
 The repo is private and built to open-source quality, but carries **no secrets**:
 
 - credentials, staging URLs, and real demo accounts live in gitignored local config
-  (`.env`, `config/local/`) or, for the desktop profile, the OS user-data dir edited in the
-  in-app Settings, never in tracked files;
+  (`.env`, `config/local/`) or, for the desktop, the OS user-data dir edited in-app: the
+  profile, the feature-map/memory, saved conversations, and the Claude Code token
+  (encrypted via Electron safeStorage), never in tracked files;
 - the AI planner authenticates through the user's Claude Code login (OAuth), so there is no
   API key to store in the repo;
 - the token, when cached, uses the OS keychain via Electron `safeStorage`, not a file.

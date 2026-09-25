@@ -1,5 +1,5 @@
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
-import type { BrowserDriver, Selector } from '@ayd/core';
+import type { BrowserDriver, PageObserver, Selector } from '@ayd/core';
 import { z } from 'zod';
 
 /** Zod shape for a driver-agnostic selector, mirrored from core's Selector. */
@@ -49,6 +49,7 @@ export const BROWSER_TOOL_NAMES = [
   'waitFor',
   'expect',
   'caption',
+  'observe',
 ] as const;
 
 const text = (t: string) => ({ content: [{ type: 'text' as const, text: t }] });
@@ -59,11 +60,20 @@ const need = (name: string) => text(`error: selector for ${name} is missing its 
  * SDK can call to drive the real browser during a live session. Handlers are
  * thin wrappers over the injected BrowserDriver.
  */
-export const createBrowserMcpServer = (driver: BrowserDriver) =>
+export const createBrowserMcpServer = (driver: BrowserDriver & PageObserver) =>
   createSdkMcpServer({
     name: 'ayd',
     version: '0.0.0',
     tools: [
+      tool(
+        'observe',
+        'Read the current page for a persona (url, title, headings, links, controls) to understand the app or investigate it before acting',
+        { personaId: z.string() },
+        async (a) => {
+          const obs = await driver.observe(a.personaId);
+          return text(JSON.stringify(obs, null, 2));
+        },
+      ),
       tool(
         'navigate',
         'Bring a persona to front and open a path or URL',
