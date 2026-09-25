@@ -37,27 +37,37 @@ export const OVERLAY_RUNTIME = String.raw`
     (parent || document.body).appendChild(n);
     return n;
   };
+  const ripple = (x, y) => {
+    const r = el('div', {
+      position: 'fixed', left: x + 'px', top: y + 'px', width: '12px', height: '12px',
+      borderRadius: '50%', border: '3px solid #22c55e', transform: 'translate(-50%,-50%)',
+      zIndex: String(Z + 6), pointerEvents: 'none', transition: 'all .5s ease-out',
+    });
+    requestAnimationFrame(() => { r.style.width = '52px'; r.style.height = '52px'; r.style.opacity = '0'; });
+    setTimeout(() => r.remove(), 600);
+  };
   const ensureCursor = () => {
     if (document.getElementById('__ayd_cursor')) return;
     const c = el('div', {
-      position: 'fixed', left: '-100px', top: '-100px', zIndex: String(Z + 6),
+      position: 'fixed', left: '50%', top: '46%', zIndex: String(Z + 6),
       pointerEvents: 'none', transform: 'translate(-3px,-2px)',
-      filter: 'drop-shadow(0 2px 6px rgba(0,0,0,.5))', transition: 'left .05s linear, top .05s linear',
+      filter: 'drop-shadow(0 2px 6px rgba(0,0,0,.5))',
+      // A free-moving AI pointer: it glides to wherever the agent acts, and does
+      // NOT follow the operator's real mouse (no mousemove listener on purpose).
+      transition: 'left .5s cubic-bezier(.22,1,.36,1), top .5s cubic-bezier(.22,1,.36,1)',
     });
     c.id = '__ayd_cursor';
     c.innerHTML = '<svg width="40" height="40" viewBox="0 0 28 28"><path d="M7 4 L7 24 L12.5 18.5 L16 26 L19 24.7 L15.5 17.3 L23 17.3 Z" fill="#fff" stroke="#111" stroke-width="1.6" stroke-linejoin="round"/></svg>';
-    addEventListener('mousemove', (e) => { c.style.left = e.clientX + 'px'; c.style.top = e.clientY + 'px'; }, true);
-    addEventListener('mousedown', (e) => {
-      const r = el('div', {
-        position: 'fixed', left: e.clientX + 'px', top: e.clientY + 'px', width: '12px', height: '12px',
-        borderRadius: '50%', border: '3px solid #22c55e', transform: 'translate(-50%,-50%)',
-        zIndex: String(Z + 6), pointerEvents: 'none', transition: 'all .5s ease-out',
-      });
-      requestAnimationFrame(() => { r.style.width = '52px'; r.style.height = '52px'; r.style.opacity = '0'; });
-      setTimeout(() => r.remove(), 600);
-    }, true);
   };
   window.__ayd = {
+    // Glide the AI pointer to (x, y). Called by the driver before it acts, so the
+    // pointer visibly travels to the target on its own, decoupled from the real mouse.
+    moveCursor(x, y) {
+      ensureCursor();
+      const c = document.getElementById('__ayd_cursor');
+      if (c) { c.style.left = x + 'px'; c.style.top = y + 'px'; }
+    },
+    ripple(x, y) { ripple(x, y); },
     frame(color, label) {
       let f = document.getElementById('__ayd_frame');
       if (!f) { f = el('div', {}, document.documentElement); f.id = '__ayd_frame'; }

@@ -10,6 +10,8 @@ interface AydChatMessage {
 declare global {
   interface Window {
     __ayd?: {
+      moveCursor(x: number, y: number): void;
+      ripple(x: number, y: number): void;
       frame(color: string, label: string): void;
       caption(text: string, sub: string, anchor: 'top' | 'bottom'): void;
       highlight(box: { x: number; y: number; width: number; height: number }, label: string): void;

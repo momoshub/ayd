@@ -133,6 +133,9 @@ export const createInteractiveAgent = (opts: InteractiveAgentOptions): Interacti
           'buttons it reports. Never invent or guess deeper URL paths.',
           'After every navigate or click, call observe again before deciding the next action,',
           'and build selectors (role/text/label) from what observe actually returns, not from assumptions.',
+          'Loading is not failure: navigate reports readyState/loading, and observe returns them too.',
+          'If a page is still loading (e.g. a slow login), waitFor a real element or observe again and',
+          'give it time. Only treat it as failed after it has finished loading and the expected thing is absent.',
           'Narrate briefly, caption before a big move, and switchTo when you change persona.',
           ...(memory
             ? [

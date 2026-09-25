@@ -88,10 +88,25 @@ const saveConversation = async (): Promise<void> => {
     .catch(() => undefined);
 };
 
+// Persist the transcript shortly after each turn (debounced) so an app restart or
+// crash keeps the session in history, not only a clean End/Interrupt.
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
+const scheduleSave = (): void => {
+  if (saveTimer) return;
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    void saveConversation();
+  }, 1500);
+};
+
 const endSession = async (): Promise<void> => {
   if (tabTimer) {
     clearInterval(tabTimer);
     tabTimer = null;
+  }
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
   }
   await saveConversation();
   await activeSession?.end().catch(() => undefined);
@@ -118,6 +133,7 @@ const personaOf = (
 const recordTurn = (m: AgentMessage): void => {
   if (!sessionState) return;
   sessionState.turns.push({ at: new Date().toISOString(), message: m });
+  scheduleSave();
   if (m.kind === 'action') {
     sessionState.busy = true;
     const pid = personaOf(m.detail, sessionState.personas);

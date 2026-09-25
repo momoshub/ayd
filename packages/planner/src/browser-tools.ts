@@ -76,12 +76,20 @@ export const createBrowserMcpServer = (driver: BrowserDriver & PageObserver) =>
       ),
       tool(
         'navigate',
-        'Bring a persona to front and open a path or URL',
+        'Bring a persona to front and open a path or URL (waits for the page to settle)',
         { personaId: z.string(), path: z.string() },
         async (a) => {
           await driver.bringToFront(a.personaId);
           await driver.navigate(a.personaId, a.path);
-          return text(`navigated ${a.personaId} → ${a.path}`);
+          // Report the real load state so the agent can tell a slow load from a failure.
+          const obs = await driver.observe(a.personaId);
+          const status = obs.loading === true ? 'STILL LOADING' : 'loaded';
+          return text(
+            `navigated ${a.personaId} → ${obs.url || a.path} (${status}, readyState=${obs.readyState ?? '?'}). ` +
+              (obs.loading === true
+                ? 'The page is still loading — wait (waitFor a real element) and observe again before treating it as a failure.'
+                : ''),
+          );
         },
       ),
       tool(
