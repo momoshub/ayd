@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { readFile } from 'node:fs/promises';
 import {
   BoxRenderable,
   createCliRenderer,
@@ -7,10 +8,32 @@ import {
   ScrollBoxRenderable,
   TextRenderable,
 } from '@opentui/core';
-import type { AgentMessage, AgentSession } from '@ayd/core';
+import {
+  type AgentMessage,
+  type AgentSession,
+  type Clock,
+  type ConversationLog,
+  type ConversationTurn,
+  parseDemoScript,
+  planAndRun,
+  type Presenter,
+  type RunEvent,
+  runScript,
+  summarizeMemory,
+} from '@ayd/core';
 import { createPlaywrightDriver, launchDemoBrowser, type PlaywrightDriver } from '@ayd/engine';
-import { createInteractiveAgent } from '@ayd/planner';
+import { createClaudeAgentPlanner, createInteractiveAgent } from '@ayd/planner';
 import type { Browser } from 'playwright';
+import { buildAgentMemory } from './agent-memory.js';
+import { createFileConversationStore, newConversationId } from './conversation-store.js';
+import {
+  applyStoredToken,
+  clearToken,
+  keychainAvailable,
+  loadToken,
+  saveToken,
+} from './credentials.js';
+import { createFileMemoryStore } from './memory-store.js';
 import { loadProfile } from './profile.js';
 
 const C = {
@@ -21,6 +44,15 @@ const C = {
   err: '#f26363',
   ok: '#34d399',
 } as const;
+
+const PACE_MS = Number.isFinite(Number(process.env['AYD_PACE_MS']))
+  ? Number(process.env['AYD_PACE_MS'])
+  : 2500;
+
+const clock: Clock = {
+  now: () => Date.now(),
+  sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+};
 
 /** Wrap a string to `width` columns on word boundaries so nothing overflows. */
 const wrap = (s: string, width: number): string[] => {
@@ -41,10 +73,25 @@ const wrap = (s: string, width: number): string[] => {
   return out.length > 0 ? out : [''];
 };
 
+const HELP = [
+  'commands:',
+  '  <text>          send to the live agent (opens the browser on the first message)',
+  '  /plan <desc>    plan a demo from a description, then run it',
+  '  /run <path>     run a saved DemoScript JSON file',
+  '  /sessions       list saved conversations',
+  '  /resume <id>    reopen a past session — the agent re-achieves its state, then continues',
+  '  /memory         show the feature-map/memory for the current app',
+  '  /token [value]  store an encrypted Claude token (keychain), or show status',
+  '  /config         show the active profile and data locations',
+  '  /stop  /end  /quit   interrupt · close session · exit (Ctrl+C also exits)',
+];
+
 const main = async (): Promise<void> => {
   const profile = await loadProfile();
-  const renderer = await createCliRenderer({ exitOnCtrlC: true, targetFps: 30 });
+  const conversationStore = createFileConversationStore();
+  const memoryStore = createFileMemoryStore();
 
+  const renderer = await createCliRenderer({ exitOnCtrlC: true, targetFps: 30 });
   const root = new BoxRenderable(renderer, {
     width: '100%',
     height: '100%',
@@ -52,18 +99,17 @@ const main = async (): Promise<void> => {
   });
   renderer.root.add(root);
 
-  const personas = profile.personas.map((p) => p.id).join(', ');
-  // flexShrink: 0 so the scrollbox's flexGrow can't squeeze these fixed rows to nothing.
+  const personaList = profile.personas.map((p) => p.id).join(', ');
   root.add(
     new TextRenderable(renderer, {
-      content: `ayd · ${profile.baseUrl} · personas: ${personas}`,
+      content: `ayd · ${profile.baseUrl} · personas: ${personaList}`,
       fg: C.accent,
       flexShrink: 0,
     }),
   );
   root.add(
     new TextRenderable(renderer, {
-      content: 'Enter: send/continue · /stop interrupt · /end close session · /quit (or Ctrl+C)',
+      content: 'Enter: send · /help for commands · /stop /end /quit',
       fg: C.muted,
       flexShrink: 0,
     }),
@@ -83,7 +129,7 @@ const main = async (): Promise<void> => {
   const input = new InputRenderable(renderer, {
     width: '100%',
     flexShrink: 0,
-    placeholder: 'tell the agent what to demo…',
+    placeholder: 'tell the agent what to demo…  (/help)',
   });
   root.add(input);
   input.focus();
@@ -95,12 +141,44 @@ const main = async (): Promise<void> => {
     renderer.requestRender();
   };
 
+  // ---- live chat session state -------------------------------------------
   let session: AgentSession | null = null;
   let browser: Browser | null = null;
   let driver: PlaywrightDriver | null = null;
+  let running = false; // a one-shot /plan or /run is in flight
   let starting = false;
 
-  const onMessage = (m: AgentMessage): void => {
+  interface SessionState {
+    id: string;
+    startedAt: string;
+    title: string;
+    turns: ConversationTurn[];
+  }
+  let sessionState: SessionState | null = null;
+  let saveTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const saveConversation = async (): Promise<void> => {
+    if (!sessionState || sessionState.turns.length === 0) return;
+    await conversationStore
+      .save({
+        id: sessionState.id,
+        startedAt: sessionState.startedAt,
+        updatedAt: new Date().toISOString(),
+        baseUrl: profile.baseUrl,
+        title: sessionState.title,
+        turns: sessionState.turns,
+      })
+      .catch(() => undefined);
+  };
+  const scheduleSave = (): void => {
+    if (saveTimer) return;
+    saveTimer = setTimeout(() => {
+      saveTimer = null;
+      void saveConversation();
+    }, 1500);
+  };
+
+  const renderMsg = (m: AgentMessage): void => {
     if (m.kind === 'assistant') line(m.text, C.text);
     else if (m.kind === 'action')
       line(`  › ${m.tool}${m.detail !== undefined ? ` ${m.detail}` : ''}`, C.accent);
@@ -110,17 +188,38 @@ const main = async (): Promise<void> => {
     else line('— turn complete — send the next step', C.muted);
   };
 
-  const startOrSend = async (text: string): Promise<void> => {
+  const endSession = async (): Promise<void> => {
+    if (saveTimer) {
+      clearTimeout(saveTimer);
+      saveTimer = null;
+    }
+    await saveConversation();
+    await session?.end().catch(() => undefined);
+    await driver?.close().catch(() => undefined);
+    await browser?.close().catch(() => undefined);
+    session = null;
+    driver = null;
+    browser = null;
+    sessionState = null;
+  };
+
+  /** Start the live agent (or send the next message to a running one). */
+  const startOrSend = async (firstMessage: string, title = firstMessage): Promise<void> => {
     if (session) {
-      line(`you: ${text}`, C.you);
-      session.send(text);
+      line(`you: ${firstMessage}`, C.you);
+      session.send(firstMessage);
+      return;
+    }
+    if (running) {
+      line('a /plan or /run is in progress — wait for it to finish', C.err);
       return;
     }
     if (starting) return;
     starting = true;
-    line(`you: ${text}`, C.you);
+    line(`you: ${firstMessage}`, C.you);
     line('opening the browser…', C.muted);
     try {
+      await applyStoredToken();
       const launched = await launchDemoBrowser();
       browser = launched.browser;
       line(`browser: ${launched.info.name}`, C.muted);
@@ -129,62 +228,259 @@ const main = async (): Promise<void> => {
         personas: profile.personas,
         baseUrl: profile.baseUrl,
       });
-      session = createInteractiveAgent({ driver }).start({
+      const memory = await buildAgentMemory(memoryStore, profile.baseUrl);
+      sessionState = {
+        id: newConversationId(),
+        startedAt: new Date().toISOString(),
+        title: title.slice(0, 80),
+        turns: [],
+      };
+      driver.onOperatorMessage((t) => session?.send(t));
+      const activeDriver = driver;
+      session = createInteractiveAgent({ driver, memory }).start({
         personas: profile.personas,
         baseUrl: profile.baseUrl,
-        firstMessage: text,
-        onMessage,
+        firstMessage,
+        onMessage: (m) => {
+          sessionState?.turns.push({ at: new Date().toISOString(), message: m });
+          renderMsg(m);
+          void activeDriver.push(m);
+          scheduleSave();
+        },
       });
+      const first = profile.personas[0];
+      if (first) await driver.bringToFront(first.id).catch(() => undefined);
+      await driver.setVisible(true).catch(() => undefined);
     } catch (e) {
       line(`✗ could not start: ${String(e)}`, C.err);
-      session = null;
+      await endSession();
     } finally {
       starting = false;
     }
   };
 
-  const cleanup = async (): Promise<void> => {
-    await session?.end().catch(() => undefined);
-    await driver?.close().catch(() => undefined);
-    await browser?.close().catch(() => undefined);
-    session = null;
-    driver = null;
-    browser = null;
+  // ---- one-shot runs (plan / run) ----------------------------------------
+  const presenter: Presenter = {
+    emit: (e: RunEvent) => {
+      if (e.type === 'run-started') line(`▶ run started — ${String(e.totalSteps)} steps`, C.text);
+      else if (e.type === 'step-started')
+        line(`  · [${String(e.index)}] ${e.step.action}`, C.muted);
+      else if (e.type === 'step-succeeded') line(`  ✓ [${String(e.index)}] ${e.step.action}`, C.ok);
+      else if (e.type === 'step-failed')
+        line(`  ✗ [${String(e.index)}] ${e.step.action} — ${e.reason}`, C.err);
+      else
+        line(
+          `■ done — ${String(e.report.succeeded)}/${String(e.report.total)} ok, ${String(e.report.failed)} failed`,
+          C.text,
+        );
+    },
   };
 
-  input.on(InputRenderableEvents.ENTER, (value: string) => {
-    const text = value.trim();
-    input.value = '';
-    if (text === '') return;
-    if (text === '/quit') {
-      void cleanup().finally(() => renderer.destroy());
+  const withRun = async (body: (d: PlaywrightDriver) => Promise<void>): Promise<void> => {
+    if (session || running) {
+      line('busy — end the current session/run first (/end)', C.err);
       return;
     }
-    if (text === '/stop') {
-      if (session) {
-        void session.interrupt();
-        line('interrupted — send a message to continue', C.muted);
+    running = true;
+    let b: Browser | null = null;
+    let d: PlaywrightDriver | null = null;
+    try {
+      const launched = await launchDemoBrowser();
+      b = launched.browser;
+      d = createPlaywrightDriver({
+        browser: b,
+        personas: profile.personas,
+        baseUrl: profile.baseUrl,
+      });
+      await body(d);
+    } catch (e) {
+      line(`✗ ${String(e)}`, C.err);
+    } finally {
+      await d?.close().catch(() => undefined);
+      await b?.close().catch(() => undefined);
+      running = false;
+    }
+  };
+
+  const runScriptFile = async (path: string): Promise<void> => {
+    let raw: unknown;
+    try {
+      raw = JSON.parse(await readFile(path, 'utf8'));
+    } catch (e) {
+      line(`✗ cannot read ${path}: ${String(e)}`, C.err);
+      return;
+    }
+    const parsed = parseDemoScript(raw);
+    if (!parsed.ok) {
+      for (const i of parsed.error) line(`  ✗ ${i.path}: ${i.message}`, C.err);
+      return;
+    }
+    await withRun((d) =>
+      runScript(parsed.value, { driver: d, presenter, clock, paceMs: PACE_MS }).then(
+        () => undefined,
+      ),
+    );
+  };
+
+  const planAndRunDesc = async (description: string): Promise<void> => {
+    await applyStoredToken();
+    await withRun(async (d) => {
+      const result = await planAndRun(
+        { description, personas: profile.personas, baseUrl: profile.baseUrl },
+        { planner: createClaudeAgentPlanner(), driver: d, presenter, clock, paceMs: PACE_MS },
+      );
+      if (!result.ok) {
+        line(`✗ plan failed: ${result.error.message}`, C.err);
+        for (const i of result.error.issues ?? []) line(`  ${i}`, C.err);
       }
+    });
+  };
+
+  const listSessions = async (): Promise<void> => {
+    const sessions = await conversationStore.list();
+    if (sessions.length === 0) {
+      line('no saved conversations yet', C.muted);
       return;
     }
-    if (text === '/end') {
-      void cleanup();
-      line('— session ended —', C.muted);
+    line(`saved conversations (${String(sessions.length)}):`, C.text);
+    for (const s of sessions.slice(0, 20)) {
+      line(
+        `  ${s.id}  ·  ${s.title || '(untitled)'}  ·  ${String(s.turnCount)} msgs  ·  ${new Date(s.startedAt).toLocaleString()}`,
+        C.muted,
+      );
+    }
+    line('resume one with:  /resume <id>', C.muted);
+  };
+
+  const continuationSeed = (log: ConversationLog): string => {
+    const lines = log.turns
+      .map((t) => {
+        const m = t.message;
+        if (m.kind === 'assistant') return `- ${m.text}`;
+        if (m.kind === 'action')
+          return `  · ${m.tool}${m.detail !== undefined ? ` ${m.detail}` : ''}`;
+        if (m.kind === 'status' && m.text.startsWith('you: '))
+          return `- (operator) ${m.text.slice(5)}`;
+        return null;
+      })
+      .filter((l): l is string => l !== null)
+      .slice(-40)
+      .join('\n');
+    return [
+      'You are RESUMING an earlier demo session. The browser was closed, so nothing is open yet.',
+      'Here is what was done before (oldest to newest):',
+      lines,
+      'First re-achieve that state: log in as needed and navigate back to where you left off by',
+      'observing and clicking real UI (do not guess URLs). Then continue from there.',
+    ].join('\n');
+  };
+
+  const resumeSession = async (id: string): Promise<void> => {
+    const log = await conversationStore.load(id);
+    if (!log) {
+      line(`✗ no session ${id}`, C.err);
       return;
     }
-    void startOrSend(text);
+    line(`resuming ${id} — the agent will re-achieve the previous state…`, C.muted);
+    await startOrSend(continuationSeed(log), `resume: ${log.title}`);
+  };
+
+  const showMemory = async (): Promise<void> => {
+    const mem = await memoryStore.load(profile.baseUrl);
+    line(summarizeMemory(mem) || 'no memory recorded for this app yet', C.muted);
+  };
+
+  const handleToken = async (value: string): Promise<void> => {
+    if (value === '') {
+      const set = (await loadToken()) !== null;
+      line(
+        keychainAvailable()
+          ? `token: ${set ? 'set (encrypted in the macOS keychain)' : 'not set — /token <value> to store, else claude login is used'}`
+          : 'encrypted token needs the macOS keychain; on this OS run `claude login`',
+        C.muted,
+      );
+      return;
+    }
+    if (value === 'clear') {
+      await clearToken();
+      line('token cleared', C.muted);
+      return;
+    }
+    const ok = await saveToken(value);
+    line(
+      ok ? 'token stored, encrypted in the keychain' : '✗ could not store token (macOS only)',
+      ok ? C.ok : C.err,
+    );
+  };
+
+  // ---- command dispatch ---------------------------------------------------
+  input.on(InputRenderableEvents.ENTER, (raw: string) => {
+    const value = raw.trim();
+    input.value = '';
+    if (value === '') return;
+    const [cmd, ...rest] = value.split(/\s+/);
+    const arg = value.slice((cmd ?? '').length).trim();
+    switch (cmd) {
+      case '/help':
+        for (const l of HELP) line(l, C.muted);
+        return;
+      case '/quit':
+        void endSession().finally(() => renderer.destroy());
+        return;
+      case '/stop':
+        if (session) {
+          void session.interrupt();
+          line('interrupted — send a message to continue', C.muted);
+        } else line('no live session', C.muted);
+        return;
+      case '/end':
+        void endSession().then(() => line('— session ended —', C.muted));
+        return;
+      case '/plan':
+        if (arg === '') line('usage: /plan <description>', C.err);
+        else void planAndRunDesc(arg);
+        return;
+      case '/run':
+        if (arg === '') line('usage: /run <path-to-script.json>', C.err);
+        else void runScriptFile(arg);
+        return;
+      case '/sessions':
+        void listSessions();
+        return;
+      case '/resume':
+        if (rest[0] === undefined) line('usage: /resume <id>', C.err);
+        else void resumeSession(rest[0]);
+        return;
+      case '/memory':
+        void showMemory();
+        return;
+      case '/token':
+        void handleToken(arg);
+        return;
+      case '/config':
+        line(`profile: ${profile.source ?? '(defaults)'}`, C.muted);
+        line(`base URL: ${profile.baseUrl}`, C.muted);
+        line(
+          `personas: ${profile.personas.map((p) => `${p.id} (${p.label})`).join(', ')}`,
+          C.muted,
+        );
+        return;
+      default:
+        if (value.startsWith('/')) line(`unknown command ${cmd} — /help`, C.err);
+        else void startOrSend(value);
+    }
   });
 
-  renderer.once('destroy', () => void cleanup());
-  process.on('SIGINT', () => void cleanup().finally(() => process.exit(0)));
+  renderer.once('destroy', () => void endSession());
+  process.on('SIGINT', () => void endSession().finally(() => process.exit(0)));
 
-  line('ayd ready. type an instruction and press Enter to open the browser and start.', C.muted);
-  if (profile.source !== undefined) line(`profile: ${profile.source}`, C.muted);
-  else
-    line(
-      'no profile file found — using defaults (set AYD_PROFILE or ~/.config/ayd/profile.json)',
-      C.muted,
-    );
+  line('ayd ready. type an instruction and press Enter, or /help for commands.', C.muted);
+  line(
+    profile.source !== undefined
+      ? `profile: ${profile.source}`
+      : 'no profile file — using defaults (set AYD_PROFILE or ~/.config/ayd/profile.json)',
+    C.muted,
+  );
 };
 
 void main();
