@@ -64,9 +64,14 @@ browser, so there is no browser download.
 ```bash
 # once: a Chromium-based browser (Chrome/Edge/Brave/Chromium) and Claude Code, logged in
 claude login
+pnpm install
 
-cd apps/tui && bun start        # or: bun run src/main.ts
+cd apps/tui && bun start        # builds the workspace packages, then launches
+# bun dev                       # skip the build when dist is already current
 ```
+
+`bun start` compiles `@ayd/core|engine|planner` to their `dist/` first (the TUI
+imports the built packages), so a fresh clone just works. `bun dev` skips that.
 
 Type an instruction and press Enter — the agent opens the browser and drives it live.
 Commands (also `/help`):
