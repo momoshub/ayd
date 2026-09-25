@@ -69,7 +69,14 @@ cd apps/tui && bun start        # or: bun run src/main.ts
 ```
 
 Type an instruction and press Enter — the agent opens the browser and drives it live.
-`/stop` interrupts, `/end` closes the session, `/quit` (or Ctrl+C) exits.
+Commands (also `/help`):
+
+- `/plan <desc>` compile + run a demo from prose · `/run <path>` run a saved DemoScript
+- `/sessions` list past runs · `/view <id>` print one · `/resume <id>` reopen one (the agent re-achieves its prior state, then continues)
+- `/memory` the per-app feature-map · `/box` show/hide the in-page chat box
+- `/token [value]` store a Claude token **encrypted in the macOS keychain** (else `claude login`)
+- `/config` show/edit settings (`set url …` · `set persona <id> <label> <color>` · `rm persona <id>`)
+- `/stop` interrupt the agent, or abort a `/plan`/`/run` · `/end` close session · `/quit` (or Ctrl+C) exit
 
 **Profile** (target app + personas): the app runs on generic defaults
 (`http://localhost:3000`, an `admin` and a `user` persona) until you point it at your app.
