@@ -1,6 +1,6 @@
 {
   "name": "@ayd/tui",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "type": "module",
   "description": "Terminal UI shell for ayd: the live chat-steerable agent in your terminal (OpenTUI, runs on Bun).",
@@ -8,7 +8,8 @@
     "ayd": "./src/main.ts"
   },
   "scripts": {
-    "start": "bun run src/main.ts",
+    "start": "tsc -b ../.. && bun run src/main.ts",
+    "dev": "bun run src/main.ts",
     "typecheck": "tsgo -b"
   },
   "dependencies": {

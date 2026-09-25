@@ -11,6 +11,7 @@
   "type": "module",
   "scripts": {
     "check": "pnpm run typecheck && pnpm run lint && pnpm run test",
+    "build": "tsc -b",
     "typecheck": "tsgo -b",
     "typecheck:tsc": "tsc -b",
     "lint": "eslint .",
