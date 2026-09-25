@@ -185,6 +185,9 @@
         flex-direction: column;
         gap: 16px;
         min-height: 0;
+        /* When the window is too short for every card, scroll the column instead
+           of letting cards shrink below their content and overlap each other. */
+        overflow-y: auto;
       }
       .card {
         background: var(--surface);
@@ -193,6 +196,10 @@
         display: flex;
         flex-direction: column;
         min-height: 0;
+        /* Natural height by default and never shrink — a shrunk card spills its
+           content onto the next one. Only the fill cards below opt into flex: 1. */
+        flex: none;
+        overflow: hidden;
       }
       .card-head {
         display: flex;
