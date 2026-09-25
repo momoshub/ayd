@@ -330,6 +330,15 @@ const registerIpc = (): void => {
         busy: true,
       };
       ({ browser: sessionBrowser } = await launchDemoBrowser());
+      // If the operator closes the whole browser, the session can't continue — end it
+      // cleanly with a clear message instead of leaving the agent driving dead windows.
+      sessionBrowser.on('disconnected', () => {
+        send(IPC.agentMessage, {
+          kind: 'error',
+          text: 'the browser was closed — session ended. send a message to start a new one.',
+        });
+        void endSession();
+      });
       const driver = createPlaywrightDriver({ browser: sessionBrowser, personas, baseUrl });
       sessionDriver = driver;
       const memory = await buildAgentMemory(baseUrl);

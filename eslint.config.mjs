@@ -7,7 +7,7 @@ import prettier from 'eslint-config-prettier';
 const SOURCE = ['packages/**/*.{ts,mts,cts}', 'apps/**/*.{ts,mts,cts}'];
 
 export default tseslint.config(
-  { ignores: ['**/dist/**', '**/out/**', '**/coverage/**', '**/*.tsbuildinfo'] },
+  { ignores: ['**/dist/**', '**/out/**', '**/coverage/**', '**/release/**', '**/*.tsbuildinfo'] },
 
   // Base JS rules everywhere, including root config files.
   eslint.configs.recommended,

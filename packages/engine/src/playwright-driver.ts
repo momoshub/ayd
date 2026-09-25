@@ -61,7 +61,10 @@ export const createPlaywrightDriver = (config: PlaywrightDriverConfig): Playwrig
 
   const ensureSession = async (personaId: string): Promise<Session> => {
     const existing = sessions.get(personaId);
-    if (existing) return existing;
+    // A closed window/tab leaves a dead page behind. Drop it and reopen so the
+    // operator can carry on, instead of every action failing with "page closed".
+    if (existing && !existing.page.isClosed()) return existing;
+    if (existing) sessions.delete(personaId);
     const context = await config.browser.newContext({ viewport: null });
     // exposeBinding before addInitScript so window.__aydChatSend exists when the
     // overlay wires the in-page box on load.
