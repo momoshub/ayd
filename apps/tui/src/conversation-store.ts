@@ -1,7 +1,12 @@
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { ConversationLog, ConversationStore, ConversationSummary } from '@ayd/core';
 import { dataDir } from './paths.js';
+
+/** The core store plus a delete, which the menu UI needs. */
+export interface TuiConversationStore extends ConversationStore {
+  remove(id: string): Promise<void>;
+}
 
 /**
  * File-backed conversation history: one JSON transcript per session under the data
@@ -16,7 +21,7 @@ const isLog = (v: unknown): v is ConversationLog =>
 
 export const newConversationId = (): string => new Date().toISOString().replace(/[:.]/g, '-');
 
-export const createFileConversationStore = (): ConversationStore => ({
+export const createFileConversationStore = (): TuiConversationStore => ({
   async list(): Promise<readonly ConversationSummary[]> {
     let files: string[];
     try {
@@ -57,5 +62,8 @@ export const createFileConversationStore = (): ConversationStore => ({
   async save(log) {
     await mkdir(dir(), { recursive: true });
     await writeFile(join(dir(), `${log.id}.json`), JSON.stringify(log, null, 2), 'utf8');
+  },
+  async remove(id) {
+    await rm(join(dir(), `${id}.json`)).catch(() => undefined);
   },
 });
