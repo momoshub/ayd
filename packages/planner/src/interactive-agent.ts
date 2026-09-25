@@ -6,6 +6,7 @@ import type {
   BrowserDriver,
   InteractiveAgent,
   PageObserver,
+  PageShooter,
   StartAgentRequest,
 } from '@ayd/core';
 import { summarizeMemory } from '@ayd/core';
@@ -42,7 +43,7 @@ export type InteractiveQueryFn = (params: {
 }) => ControllableQuery;
 
 export interface InteractiveAgentOptions {
-  readonly driver: BrowserDriver & PageObserver;
+  readonly driver: BrowserDriver & PageObserver & PageShooter;
   /** When provided, the agent recalls/records the app's feature-map + interactions. */
   readonly memory?: AgentMemory;
   readonly model?: string;
@@ -136,6 +137,11 @@ export const createInteractiveAgent = (opts: InteractiveAgentOptions): Interacti
           'Loading is not failure: navigate reports readyState/loading, and observe returns them too.',
           'If a page is still loading (e.g. a slow login), waitFor a real element or observe again and',
           'give it time. Only treat it as failed after it has finished loading and the expected thing is absent.',
+          'To read a page fast, or to see anything the DOM can not describe (a canvas, a chart, a',
+          'CROSS-ORIGIN iframe), use screenshot and look at the image instead of only observe.',
+          'iframes: observe lists them. To act on an element inside one, set the selector "frame" to the',
+          'chain of iframe CSS selectors (outermost first), e.g. frame: ["iframe#editor"]. frameLocator',
+          'works across origins for clicking/typing even when observe can not read the frame DOM.',
           'Narrate briefly, caption before a big move, and switchTo when you change persona.',
           ...(memory
             ? [

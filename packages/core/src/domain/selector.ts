@@ -3,7 +3,14 @@
  * (a role, some text, a test id); the BrowserDriver adapter translates this to
  * Playwright locators, so the domain never depends on any automation library.
  */
-export type Selector =
+/**
+ * An optional chain of iframe CSS selectors to descend through before matching,
+ * outermost first (e.g. ['iframe#editor'] or ['iframe.outer', 'iframe.inner']).
+ * Lets a selector reach an element nested inside one or more iframes.
+ */
+type FrameScope = { readonly frame?: readonly string[] };
+
+export type Selector = (
   | {
       readonly kind: 'role';
       readonly role: string;
@@ -13,7 +20,9 @@ export type Selector =
   | { readonly kind: 'text'; readonly text: string }
   | { readonly kind: 'testId'; readonly testId: string }
   | { readonly kind: 'label'; readonly label: string }
-  | { readonly kind: 'css'; readonly css: string };
+  | { readonly kind: 'css'; readonly css: string }
+) &
+  FrameScope;
 
 export type SelectorKind = Selector['kind'];
 

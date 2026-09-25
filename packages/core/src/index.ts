@@ -30,7 +30,7 @@ export type {
   StartAgentRequest,
 } from './ports/interactive-agent.js';
 export type { MemoryStore } from './ports/memory-store.js';
-export type { PageObserver, PageObservation } from './ports/page-observer.js';
+export type { PageObserver, PageObservation, PageShooter } from './ports/page-observer.js';
 export type { InPageChat } from './ports/in-page-chat.js';
 export type { TabReporter, TabInfo } from './ports/tab-reporter.js';
 export type {
