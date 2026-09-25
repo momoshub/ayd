@@ -10,6 +10,7 @@ build/
 
 # electron packaging
 apps/desktop/release/
+release/
 
 # test / coverage
 coverage/

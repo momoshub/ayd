@@ -3,4 +3,5 @@ LICENSE
 **/dist/**
 **/out/**
 **/coverage/**
+**/release/**
 **/*.tsbuildinfo
