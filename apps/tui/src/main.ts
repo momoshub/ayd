@@ -5,7 +5,9 @@ import {
   createCliRenderer,
   InputRenderable,
   InputRenderableEvents,
+  type KeyEvent,
   ScrollBoxRenderable,
+  TextAttributes,
   TextRenderable,
 } from '@opentui/core';
 import {
@@ -34,6 +36,7 @@ import {
   saveToken,
 } from './credentials.js';
 import { createFileMemoryStore } from './memory-store.js';
+import { log, logPath } from './log.js';
 import { runPreflight } from './preflight.js';
 import { type DemoProfile, loadProfile, saveProfile } from './profile.js';
 
@@ -44,6 +47,7 @@ const C = {
   muted: '#6b7385',
   err: '#f26363',
   ok: '#34d399',
+  surface2: '#232836',
 } as const;
 
 const PACE_MS = Number.isFinite(Number(process.env['AYD_PACE_MS']))
@@ -75,6 +79,23 @@ const wrap = (s: string, width: number): string[] => {
 };
 
 const shortUrl = (u: string): string => u.replace(/^https?:\/\//, '').slice(0, 40) || 'about:blank';
+
+/** The command palette: name, one-line help, and whether it takes an argument. */
+const COMMANDS: readonly { name: string; desc: string; arg: boolean }[] = [
+  { name: '/plan', desc: 'plan a demo from a description, then run it', arg: true },
+  { name: '/run', desc: 'run a saved DemoScript JSON file', arg: true },
+  { name: '/sessions', desc: 'list saved conversations', arg: false },
+  { name: '/view', desc: 'print a past conversation (read-only)', arg: true },
+  { name: '/resume', desc: 're-open a past session and continue it', arg: true },
+  { name: '/memory', desc: 'show the feature-map/memory for this app', arg: false },
+  { name: '/box', desc: 'show/hide the in-page chat box', arg: false },
+  { name: '/token', desc: 'store an encrypted Claude token, or show status', arg: true },
+  { name: '/config', desc: 'show or edit settings (url / personas)', arg: true },
+  { name: '/stop', desc: 'interrupt the agent, or abort a /plan or /run', arg: false },
+  { name: '/end', desc: 'close the live session', arg: false },
+  { name: '/quit', desc: 'exit ayd', arg: false },
+  { name: '/help', desc: 'list all commands', arg: false },
+];
 
 const HELP = [
   'commands:',
@@ -133,13 +154,134 @@ const main = async (): Promise<void> => {
   const tabsLine = new TextRenderable(renderer, { content: '', fg: C.muted, flexShrink: 0 });
   root.add(tabsLine);
 
+  // Clickable button bar, grouped like the old desktop app: chat controls · run · panels.
+  // Actions reference functions defined below; the closures only run on click, by which
+  // point everything is initialised. Buttons complement the keyboard/slash-command flow.
+  const makeBtn = (label: string, onClick: () => void, primary = false): TextRenderable => {
+    const base = primary ? C.accent : C.surface2;
+    const off = primary ? C.text : C.muted;
+    const b = new TextRenderable(renderer, {
+      content: ` ${label} `,
+      fg: off,
+      bg: base,
+      flexShrink: 0,
+      onMouseDown: () => onClick(),
+      onMouseOver: () => {
+        b.bg = C.accent;
+        b.fg = C.text;
+        renderer.requestRender();
+      },
+      onMouseOut: () => {
+        b.bg = base;
+        b.fg = off;
+        renderer.requestRender();
+      },
+    });
+    return b;
+  };
+  const sep = (): TextRenderable =>
+    new TextRenderable(renderer, { content: ' · ', fg: C.muted, flexShrink: 0 });
+  const buttonBar = new BoxRenderable(renderer, {
+    width: '100%',
+    flexShrink: 0,
+    flexDirection: 'row',
+    gap: 1,
+  });
+  [
+    makeBtn('Send', () => submit(input.value), true),
+    makeBtn('Interrupt', () => stop()),
+    makeBtn('End', () => void endSession().then(() => line('— session ended —', C.muted))),
+    sep(),
+    makeBtn('Plan…', () => prefill('/plan ')),
+    makeBtn('Run…', () => prefill('/run ')),
+    sep(),
+    makeBtn('Sessions', () => void listSessions()),
+    makeBtn('Memory', () => void showMemory()),
+    makeBtn('Settings', () => void handleConfig([])),
+  ].forEach((b) => buttonBar.add(b));
+  root.add(buttonBar);
+
+  // Command autocomplete: a bordered panel above the input, filtered as you type '/'.
+  const suggestBox = new BoxRenderable(renderer, {
+    width: '100%',
+    flexShrink: 0,
+    border: true,
+    borderStyle: 'rounded',
+    borderColor: C.accent,
+    title: 'commands',
+    visible: false,
+  });
+  root.add(suggestBox);
+
   const input = new InputRenderable(renderer, {
     width: '100%',
     flexShrink: 0,
-    placeholder: 'tell the agent what to demo…  (/help)',
+    placeholder: 'tell the agent what to demo…  (type / for commands)',
   });
   root.add(input);
   input.focus();
+
+  // ---- command autocomplete ----------------------------------------------
+  let matches: readonly { name: string; desc: string; arg: boolean }[] = [];
+  let selected = 0;
+  const renderSuggest = (): void => {
+    const v = input.value;
+    // Only while typing the command token itself (a leading '/', no space yet).
+    if (!v.startsWith('/') || v.includes(' ')) {
+      matches = [];
+      suggestBox.visible = false;
+      renderer.requestRender();
+      return;
+    }
+    matches = COMMANDS.filter((c) => c.name.startsWith(v));
+    if (matches.length === 0) {
+      suggestBox.visible = false;
+      renderer.requestRender();
+      return;
+    }
+    if (selected >= matches.length) selected = 0;
+    suggestBox.getChildren().forEach((c) => c.destroyRecursively());
+    matches.forEach((m, i) => {
+      const on = i === selected;
+      suggestBox.add(
+        new TextRenderable(renderer, {
+          content: `${on ? '▸ ' : '  '}${m.name.padEnd(10)} ${m.desc}`,
+          fg: on ? C.text : C.muted,
+          ...(on ? { attributes: TextAttributes.BOLD } : {}),
+        }),
+      );
+    });
+    suggestBox.visible = true;
+    renderer.requestRender();
+  };
+  const acceptSuggest = (): void => {
+    const m = matches[selected];
+    if (!m) return;
+    input.value = m.arg ? `${m.name} ` : m.name;
+    renderSuggest();
+  };
+
+  input.on(InputRenderableEvents.INPUT, () => {
+    selected = 0;
+    renderSuggest();
+  });
+  // Tab completes the highlighted command; ↑/↓ move the selection. Global listeners
+  // run before the focused input, so stopPropagation keeps these keys out of the text.
+  renderer.keyInput.on('keypress', (key: KeyEvent) => {
+    if (matches.length === 0) return;
+    if (key.name === 'tab') {
+      acceptSuggest();
+      key.stopPropagation();
+    } else if (key.name === 'down') {
+      selected = (selected + 1) % matches.length;
+      renderSuggest();
+      key.stopPropagation();
+    } else if (key.name === 'up') {
+      selected = (selected - 1 + matches.length) % matches.length;
+      renderSuggest();
+      key.stopPropagation();
+    }
+  });
 
   const line = (content: string, fg: string = C.text): void => {
     for (const l of wrap(content, Math.max(20, renderer.width - 2))) {
@@ -238,11 +380,13 @@ const main = async (): Promise<void> => {
     starting = true;
     line(`you: ${firstMessage}`, C.you);
     line('opening the browser…', C.muted);
+    log.info('session:start', { baseUrl: profile.baseUrl });
     try {
       await applyStoredToken();
       const launched = await launchDemoBrowser();
       browser = launched.browser;
       line(`browser: ${launched.info.name}`, C.muted);
+      log.info('browser', launched.info.name);
       driver = createPlaywrightDriver({
         browser,
         personas: profile.personas,
@@ -266,6 +410,7 @@ const main = async (): Promise<void> => {
           renderMsg(m);
           void activeDriver.push(m);
           scheduleSave();
+          log.debug('agent', m);
         },
       });
       const first = profile.personas[0];
@@ -287,6 +432,7 @@ const main = async (): Promise<void> => {
       }, 1500);
     } catch (e) {
       line(`✗ could not start: ${String(e)}`, C.err);
+      log.error('session:start failed', e);
       await endSession();
     } finally {
       starting = false;
@@ -332,6 +478,7 @@ const main = async (): Promise<void> => {
       await body(d, controller.signal);
     } catch (e) {
       line(`✗ ${String(e)}`, C.err);
+      log.error('run failed', e);
     } finally {
       await d?.close().catch(() => undefined);
       await b?.close().catch(() => undefined);
@@ -493,6 +640,7 @@ const main = async (): Promise<void> => {
       line(`profile: ${profile.source ?? '(defaults)'}`, C.muted);
       line(`base URL: ${profile.baseUrl}`, C.muted);
       line(`personas: ${profile.personas.map((p) => `${p.id} (${p.label})`).join(', ')}`, C.muted);
+      line(`log: ${logPath()}  (tail it to debug; AYD_DEBUG=1 for verbose)`, C.muted);
       line(
         'edit: /config set url <u> · set persona <id> <label> <color> · rm persona <id>',
         C.muted,
@@ -546,10 +694,20 @@ const main = async (): Promise<void> => {
   };
 
   // ---- command dispatch ---------------------------------------------------
-  input.on(InputRenderableEvents.ENTER, (raw: string) => {
-    const value = raw.trim();
+  // Put a command (with a trailing space) in the input, ready for its argument.
+  const prefill = (text: string): void => {
+    input.value = text;
+    renderSuggest();
+    input.focus();
+  };
+
+  // Shared by Enter and the Send button.
+  const submit = (rawValue: string): void => {
+    const value = rawValue.trim();
     input.value = '';
+    renderSuggest();
     if (value === '') return;
+    log.debug('submit', value.startsWith('/') ? value : '<message>');
     const parts = value.split(/\s+/);
     const cmd = parts[0] ?? '';
     const arg = value.slice(cmd.length).trim();
@@ -601,11 +759,13 @@ const main = async (): Promise<void> => {
         if (value.startsWith('/')) line(`unknown command ${cmd} — /help`, C.err);
         else void startOrSend(value);
     }
-  });
+  };
+  input.on(InputRenderableEvents.ENTER, (raw: string) => submit(raw));
 
   renderer.once('destroy', () => void endSession());
   process.on('SIGINT', () => void endSession().finally(() => process.exit(0)));
 
+  log.info('tui:start', { profile: profile.source ?? 'defaults', baseUrl: profile.baseUrl });
   line('ayd ready. type an instruction and press Enter, or /help for commands.', C.muted);
   line(
     profile.source !== undefined
@@ -613,8 +773,10 @@ const main = async (): Promise<void> => {
       : 'no profile file — using defaults (set AYD_PROFILE or ~/.config/ayd/profile.json, or /config set …)',
     C.muted,
   );
+  line(`log: ${logPath()}`, C.muted);
   // Prerequisite check, shown up front.
   void runPreflight().then((pf) => {
+    log.info('preflight', pf);
     line(
       `checks · browser: ${pf.browser.ok ? pf.browser.name : 'NONE — install Chrome'} · claude code: ${pf.claudeCode.ok ? (pf.claudeCode.version ?? 'ok') : 'NOT FOUND — run claude login'}`,
       pf.browser.ok && pf.claudeCode.ok ? C.ok : C.err,
