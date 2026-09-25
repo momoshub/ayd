@@ -118,4 +118,47 @@ describe('runScript', () => {
     );
     expect(clock.sleeps).toEqual([250, 250]);
   });
+
+  it('runs nothing when the signal is already aborted', async () => {
+    const driver = createFakeDriver();
+    const controller = new AbortController();
+    controller.abort();
+    const report = await runScript(script([{ action: 'caption', text: 'a' }]), {
+      driver: driver.driver,
+      presenter: createRecordingPresenter().presenter,
+      clock: createImmediateClock(),
+      signal: controller.signal,
+    });
+    expect(report.total).toBe(0);
+    expect(driver.calls).toHaveLength(0);
+  });
+
+  it('stops after the current step when aborted mid-run, and skips the pause', async () => {
+    const driver = createFakeDriver();
+    const controller = new AbortController();
+    const clock = createImmediateClock();
+    const rec = createRecordingPresenter();
+    // abort as soon as the first step starts
+    const abortingPresenter = {
+      emit: (e: Parameters<typeof rec.presenter.emit>[0]) => {
+        rec.presenter.emit(e);
+        if (e.type === 'step-started') controller.abort();
+      },
+    };
+    const report = await runScript(
+      script([
+        { action: 'caption', text: 'a' },
+        { action: 'caption', text: 'b' },
+      ]),
+      {
+        driver: driver.driver,
+        presenter: abortingPresenter,
+        clock,
+        paceMs: 250,
+        signal: controller.signal,
+      },
+    );
+    expect(report.total).toBe(1); // only the first step ran
+    expect(clock.sleeps).toEqual([]); // pause skipped on abort
+  });
 });

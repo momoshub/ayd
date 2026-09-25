@@ -1,0 +1,23 @@
+{
+  "name": "@ayd/planner",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "AI planner: compiles a plain-English description into a DemoScript. Implements @ayd/core's AiPlanner port.",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.280",
+    "@ayd/core": "workspace:*",
+    "zod": "^4.6.5"
+  }
+}

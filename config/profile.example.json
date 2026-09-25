@@ -1,0 +1,7 @@
+{
+  "baseUrl": "http://localhost:3000",
+  "personas": [
+    { "id": "admin", "label": "ADMIN", "color": "#ef4444" },
+    { "id": "user", "label": "USER · scoped", "color": "#22c55e" }
+  ]
+}

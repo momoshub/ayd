@@ -1,4 +1,10 @@
 {
   "files": [],
-  "references": [{ "path": "packages/core" }]
+  "references": [
+    { "path": "packages/core" },
+    { "path": "packages/engine" },
+    { "path": "packages/planner" },
+    { "path": "apps/desktop" },
+    { "path": "apps/cli" }
+  ]
 }
