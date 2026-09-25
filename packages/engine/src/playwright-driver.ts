@@ -45,7 +45,6 @@ const boxCenter = (box: {
  * and overlays.ts.
  */
 export const createPlaywrightDriver = (config: PlaywrightDriverConfig): PlaywrightDriver => {
-  const pointerSteps = config.pointerSteps ?? 24;
   const personaById = new Map(config.personas.map((p) => [p.id, p]));
   const sessions = new Map<string, Session>();
   // Set by the desktop before the agent runs; the in-page box calls this on send.
@@ -111,14 +110,18 @@ export const createPlaywrightDriver = (config: PlaywrightDriverConfig): Playwrig
     }
   };
 
-  // Glide the on-screen pointer to the element's centre (visual only; the real
-  // interaction is done by the caller via a verified Locator action).
-  const glideTo = async (page: Page, locator: Locator): Promise<void> => {
+  // Glide the on-screen AI pointer to the element's centre and return the point.
+  // Visual only (a free-moving overlay, not the real OS mouse); the actual
+  // interaction is done by the caller via a verified Locator action.
+  const glideTo = async (page: Page, locator: Locator): Promise<[number, number] | null> => {
     await locator.scrollIntoViewIfNeeded({ timeout: 4000 }).catch(() => undefined);
     const box = await locator.boundingBox().catch(() => null);
-    if (!box) return;
-    const [x, y] = boxCenter(box);
-    await page.mouse.move(x, y, { steps: pointerSteps });
+    if (!box) return null;
+    const point = boxCenter(box);
+    await page.evaluate(([x, y]) => window.__ayd?.moveCursor(x, y), point).catch(() => undefined);
+    // Let the pointer visibly travel to the target before the action fires.
+    await page.waitForTimeout(420);
+    return point;
   };
 
   return {
@@ -136,16 +139,24 @@ export const createPlaywrightDriver = (config: PlaywrightDriverConfig): Playwrig
       await session.page
         .goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 })
         .catch(() => undefined);
+      // Give slow apps (SPA logins, redirects) time to settle so a long load is not
+      // mistaken for a finished page. Bounded so a long-polling app doesn't hang here.
+      await session.page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => undefined);
       await paintFrame(session, persona(personaId));
     },
 
     async click(personaId, target) {
       const session = await ensureSession(personaId);
       const locator = resolveLocator(session.page, target);
-      await glideTo(session.page, locator); // move the on-screen pointer to the target
+      const point = await glideTo(session.page, locator); // AI pointer travels to the target
       // A verified click (waits for actionability); it throws if the element isn't
       // clickable, so runScript records a real failure instead of a false success.
       await locator.click({ timeout: 4000 });
+      // Ripple at the AI pointer, since it no longer rides the real mouse's mousedown.
+      if (point)
+        await session.page
+          .evaluate(([x, y]) => window.__ayd?.ripple(x, y), point)
+          .catch(() => undefined);
     },
 
     async type(personaId, target, text, opts) {
@@ -239,7 +250,20 @@ export const createPlaywrightDriver = (config: PlaywrightDriverConfig): Playwrig
                 ).slice(0, 60),
             ),
           ).slice(0, 60);
-          return { url: location.href, title: document.title, headings, links, controls };
+          const loading =
+            document.readyState !== 'complete' ||
+            document.querySelector(
+              '[aria-busy="true"],[role="progressbar"],.loading,.spinner,.ant-spin-spinning',
+            ) !== null;
+          return {
+            url: location.href,
+            title: document.title,
+            headings,
+            links,
+            controls,
+            readyState: document.readyState,
+            loading,
+          };
         })
         .catch(() => ({ url: '', title: '', headings: [], links: [], controls: [] }));
     },

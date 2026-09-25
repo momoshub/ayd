@@ -10,6 +10,10 @@ export interface PageObservation {
   readonly links: readonly { readonly text: string; readonly href: string }[];
   /** Labels of interactive controls (buttons, inputs, menu items). */
   readonly controls: readonly string[];
+  /** document.readyState: 'loading' | 'interactive' | 'complete'. */
+  readonly readyState?: string;
+  /** True while the page is still loading (not complete, or a spinner is visible). */
+  readonly loading?: boolean;
 }
 
 export interface PageObserver {
