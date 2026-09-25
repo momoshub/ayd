@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 import { readFile } from 'node:fs/promises';
 import { type Clock, type RunEvent, parseDemoScript, runScript } from '@ayd/core';
-import { createPlaywrightDriver } from '@ayd/engine';
-import { chromium } from 'playwright';
+import { createPlaywrightDriver, launchDemoBrowser } from '@ayd/engine';
 import { parseArgs } from './args.js';
 
 const clock: Clock = {
@@ -44,7 +43,7 @@ const main = async (): Promise<number> => {
     return 2;
   }
 
-  const browser = await chromium.launch({
+  const { browser } = await launchDemoBrowser({
     headless: !args.value.headed,
     args: args.value.headed ? ['--start-maximized'] : [],
   });

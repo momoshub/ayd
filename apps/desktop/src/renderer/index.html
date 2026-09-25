@@ -136,6 +136,42 @@
         box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 30%, transparent);
       }
 
+      /* ---- preflight chips ---- */
+      .preflight {
+        display: inline-flex;
+        gap: 6px;
+      }
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 11px;
+        padding: 3px 9px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: var(--surface-2);
+        color: var(--muted);
+        white-space: nowrap;
+      }
+      .chip::before {
+        content: '';
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--faint);
+        flex: none;
+      }
+      .chip.ok::before {
+        background: var(--ok);
+      }
+      .chip.bad {
+        color: var(--danger);
+        border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+      }
+      .chip.bad::before {
+        background: var(--danger);
+      }
+
       /* ---- layout ---- */
       main {
         display: grid;
@@ -670,6 +706,7 @@
       <span class="mark">ayd<span class="dot">.</span></span>
       <span class="tagline">automate y_our demo(n)s</span>
       <span class="legend" id="legend"></span>
+      <span class="preflight" id="preflight"></span>
       <button id="profile" title="Open settings">loading profile…</button>
       <button id="sessions-open" class="btn-ghost" title="Saved conversations">🕘 Sessions</button>
       <button id="memory-open" class="btn-ghost" title="Feature map / memory">🧠 Memory</button>

@@ -1,9 +1,11 @@
 {
   "name": "@ayd/desktop",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "description": "Electron shell: control UI + composition root wiring the engine, planner, and use-cases.",
+  "productName": "ayd",
+  "author": "momos",
   "main": "./dist/main.js",
   "scripts": {
     "build": "tsc -b && mkdir -p dist/renderer && cp src/renderer/index.html dist/renderer/",

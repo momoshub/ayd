@@ -38,6 +38,8 @@ export const IPC = {
   saveToken: 'ayd:save-token',
   /** renderer → main: whether a Claude Code token is stored. */
   getAuthStatus: 'ayd:get-auth-status',
+  /** renderer → main: check prerequisites (a Chromium-based browser, Claude Code). */
+  getPreflight: 'ayd:get-preflight',
 } as const;
 
 /** Presenter that forwards run events to a renderer over `send(IPC.event, ...)`. */

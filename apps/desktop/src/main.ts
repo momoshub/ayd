@@ -16,15 +16,16 @@ import {
   planAndRun,
   runScript,
 } from '@ayd/core';
-import { createPlaywrightDriver, type PlaywrightDriver } from '@ayd/engine';
+import { createPlaywrightDriver, launchDemoBrowser, type PlaywrightDriver } from '@ayd/engine';
 import { type AgentMemory, createClaudeAgentPlanner, createInteractiveAgent } from '@ayd/planner';
 import { app, BrowserWindow, ipcMain } from 'electron';
-import { type Browser, chromium } from 'playwright';
+import type { Browser } from 'playwright';
 import { applyStoredToken, loadToken, saveToken } from './credentials.js';
 import { createFileConversationStore, newConversationId } from './conversation-store.js';
 import { createIpcPresenter, IPC } from './ipc.js';
 import { createFileMemoryStore } from './memory-store.js';
 import { DEFAULT_PROFILE, type DemoProfile, parseProfile } from './profile.js';
+import { runPreflight } from './preflight.js';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const rawPace = Number(process.env.AYD_PACE_MS ?? 2500);
@@ -226,7 +227,7 @@ const withDemoRun = async <T>(
     // Launch + driver creation are INSIDE the try so a launch failure (e.g. browsers
     // not installed) still hits the finally and releases the lock — otherwise the app
     // would be permanently stuck reporting "a run is already in progress".
-    browser = await chromium.launch({ headless: false, args: ['--start-maximized'] });
+    ({ browser } = await launchDemoBrowser());
     activeBrowser = browser;
     driver = createPlaywrightDriver({ browser, personas, baseUrl });
     return await body(driver, controller.signal);
@@ -328,7 +329,7 @@ const registerIpc = (): void => {
         activity: new Map(),
         busy: true,
       };
-      sessionBrowser = await chromium.launch({ headless: false, args: ['--start-maximized'] });
+      ({ browser: sessionBrowser } = await launchDemoBrowser());
       const driver = createPlaywrightDriver({ browser: sessionBrowser, personas, baseUrl });
       sessionDriver = driver;
       const memory = await buildAgentMemory(baseUrl);
@@ -381,6 +382,8 @@ const registerIpc = (): void => {
 
   ipcMain.handle(IPC.listSessions, () => conversationStore.list());
   ipcMain.handle(IPC.getSession, (_e, id: string) => conversationStore.load(id));
+
+  ipcMain.handle(IPC.getPreflight, () => runPreflight());
 
   ipcMain.handle(IPC.getAuthStatus, async () => ({ tokenSet: (await loadToken()) !== null }));
   ipcMain.handle(IPC.saveToken, async (_e, token: unknown) => {
