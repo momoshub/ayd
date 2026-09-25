@@ -46,6 +46,8 @@ export const buildPlannerPrompt = (request: PlanRequest): PlannerPrompt => {
     'Rules: use only the provided persona ids; prefer role/text/label selectors over css;',
     'open with a caption, switch personas explicitly with switchTo, and assert visible outcomes',
     'with expect so the run self-checks.',
+    'Navigation: use navigate only for the base URL (or a path the user explicitly gave). Reach',
+    'every other page by clicking real links, menus, tabs, and buttons — do not guess deeper URL paths.',
   ].join('\n');
 
   const user = [
