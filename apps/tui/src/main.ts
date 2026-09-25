@@ -34,7 +34,8 @@ import {
   saveToken,
 } from './credentials.js';
 import { createFileMemoryStore } from './memory-store.js';
-import { loadProfile } from './profile.js';
+import { runPreflight } from './preflight.js';
+import { type DemoProfile, loadProfile, saveProfile } from './profile.js';
 
 const C = {
   accent: '#8b7cf6',
@@ -73,21 +74,25 @@ const wrap = (s: string, width: number): string[] => {
   return out.length > 0 ? out : [''];
 };
 
+const shortUrl = (u: string): string => u.replace(/^https?:\/\//, '').slice(0, 40) || 'about:blank';
+
 const HELP = [
   'commands:',
   '  <text>          send to the live agent (opens the browser on the first message)',
   '  /plan <desc>    plan a demo from a description, then run it',
   '  /run <path>     run a saved DemoScript JSON file',
   '  /sessions       list saved conversations',
+  '  /view <id>      print a past conversation (read-only)',
   '  /resume <id>    reopen a past session — the agent re-achieves its state, then continues',
   '  /memory         show the feature-map/memory for the current app',
+  '  /box            show/hide the in-page chat box (during a live session)',
   '  /token [value]  store an encrypted Claude token (keychain), or show status',
-  '  /config         show the active profile and data locations',
-  '  /stop  /end  /quit   interrupt · close session · exit (Ctrl+C also exits)',
+  '  /config         show settings · /config set url <u> · set persona <id> <label> <color> · rm persona <id>',
+  '  /stop  /end  /quit   interrupt (also aborts a /plan or /run) · close session · exit',
 ];
 
 const main = async (): Promise<void> => {
-  const profile = await loadProfile();
+  let profile: DemoProfile = await loadProfile();
   const conversationStore = createFileConversationStore();
   const memoryStore = createFileMemoryStore();
 
@@ -99,14 +104,8 @@ const main = async (): Promise<void> => {
   });
   renderer.root.add(root);
 
-  const personaList = profile.personas.map((p) => p.id).join(', ');
-  root.add(
-    new TextRenderable(renderer, {
-      content: `ayd · ${profile.baseUrl} · personas: ${personaList}`,
-      fg: C.accent,
-      flexShrink: 0,
-    }),
-  );
+  const headerText = new TextRenderable(renderer, { content: '', fg: C.accent, flexShrink: 0 });
+  root.add(headerText);
   root.add(
     new TextRenderable(renderer, {
       content: 'Enter: send · /help for commands · /stop /end /quit',
@@ -114,6 +113,11 @@ const main = async (): Promise<void> => {
       flexShrink: 0,
     }),
   );
+  const refreshHeader = (): void => {
+    headerText.content = `ayd · ${profile.baseUrl} · personas: ${profile.personas.map((p) => p.id).join(', ')}`;
+    renderer.requestRender();
+  };
+  refreshHeader();
 
   const transcript = new ScrollBoxRenderable(renderer, {
     flexGrow: 1,
@@ -125,6 +129,9 @@ const main = async (): Promise<void> => {
     stickyStart: 'bottom',
   });
   root.add(transcript);
+
+  const tabsLine = new TextRenderable(renderer, { content: '', fg: C.muted, flexShrink: 0 });
+  root.add(tabsLine);
 
   const input = new InputRenderable(renderer, {
     width: '100%',
@@ -145,8 +152,10 @@ const main = async (): Promise<void> => {
   let session: AgentSession | null = null;
   let browser: Browser | null = null;
   let driver: PlaywrightDriver | null = null;
-  let running = false; // a one-shot /plan or /run is in flight
   let starting = false;
+  let boxVisible = true;
+  // A one-shot /plan or /run, abortable via /stop.
+  let activeRun: { controller: AbortController; browser: Browser } | null = null;
 
   interface SessionState {
     id: string;
@@ -156,6 +165,7 @@ const main = async (): Promise<void> => {
   }
   let sessionState: SessionState | null = null;
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
+  let tabTimer: ReturnType<typeof setInterval> | null = null;
 
   const saveConversation = async (): Promise<void> => {
     if (!sessionState || sessionState.turns.length === 0) return;
@@ -188,7 +198,17 @@ const main = async (): Promise<void> => {
     else line('— turn complete — send the next step', C.muted);
   };
 
+  const stopTabs = (): void => {
+    if (tabTimer) {
+      clearInterval(tabTimer);
+      tabTimer = null;
+    }
+    tabsLine.content = '';
+    renderer.requestRender();
+  };
+
   const endSession = async (): Promise<void> => {
+    stopTabs();
     if (saveTimer) {
       clearTimeout(saveTimer);
       saveTimer = null;
@@ -210,8 +230,8 @@ const main = async (): Promise<void> => {
       session.send(firstMessage);
       return;
     }
-    if (running) {
-      line('a /plan or /run is in progress — wait for it to finish', C.err);
+    if (activeRun) {
+      line('a /plan or /run is in progress — /stop it first', C.err);
       return;
     }
     if (starting) return;
@@ -250,7 +270,21 @@ const main = async (): Promise<void> => {
       });
       const first = profile.personas[0];
       if (first) await driver.bringToFront(first.id).catch(() => undefined);
+      boxVisible = true;
       await driver.setVisible(true).catch(() => undefined);
+      // Poll per-tab progress while the session is live.
+      tabTimer = setInterval(() => {
+        void activeDriver
+          .listTabs()
+          .then((tabs) => {
+            tabsLine.content =
+              tabs.length > 0
+                ? 'tabs · ' + tabs.map((t) => `${t.personaId}: ${shortUrl(t.url)}`).join('  ·  ')
+                : '';
+            renderer.requestRender();
+          })
+          .catch(() => undefined);
+      }, 1500);
     } catch (e) {
       line(`✗ could not start: ${String(e)}`, C.err);
       await endSession();
@@ -259,7 +293,7 @@ const main = async (): Promise<void> => {
     }
   };
 
-  // ---- one-shot runs (plan / run) ----------------------------------------
+  // ---- one-shot runs (plan / run), abortable ------------------------------
   const presenter: Presenter = {
     emit: (e: RunEvent) => {
       if (e.type === 'run-started') line(`▶ run started — ${String(e.totalSteps)} steps`, C.text);
@@ -276,29 +310,32 @@ const main = async (): Promise<void> => {
     },
   };
 
-  const withRun = async (body: (d: PlaywrightDriver) => Promise<void>): Promise<void> => {
-    if (session || running) {
-      line('busy — end the current session/run first (/end)', C.err);
+  const withRun = async (
+    body: (d: PlaywrightDriver, signal: AbortSignal) => Promise<void>,
+  ): Promise<void> => {
+    if (session || activeRun) {
+      line('busy — end the current session/run first (/end or /stop)', C.err);
       return;
     }
-    running = true;
+    const controller = new AbortController();
     let b: Browser | null = null;
     let d: PlaywrightDriver | null = null;
     try {
       const launched = await launchDemoBrowser();
       b = launched.browser;
+      activeRun = { controller, browser: b };
       d = createPlaywrightDriver({
         browser: b,
         personas: profile.personas,
         baseUrl: profile.baseUrl,
       });
-      await body(d);
+      await body(d, controller.signal);
     } catch (e) {
       line(`✗ ${String(e)}`, C.err);
     } finally {
       await d?.close().catch(() => undefined);
       await b?.close().catch(() => undefined);
-      running = false;
+      activeRun = null;
     }
   };
 
@@ -315,8 +352,8 @@ const main = async (): Promise<void> => {
       for (const i of parsed.error) line(`  ✗ ${i.path}: ${i.message}`, C.err);
       return;
     }
-    await withRun((d) =>
-      runScript(parsed.value, { driver: d, presenter, clock, paceMs: PACE_MS }).then(
+    await withRun((d, signal) =>
+      runScript(parsed.value, { driver: d, presenter, clock, paceMs: PACE_MS, signal }).then(
         () => undefined,
       ),
     );
@@ -324,10 +361,17 @@ const main = async (): Promise<void> => {
 
   const planAndRunDesc = async (description: string): Promise<void> => {
     await applyStoredToken();
-    await withRun(async (d) => {
+    await withRun(async (d, signal) => {
       const result = await planAndRun(
         { description, personas: profile.personas, baseUrl: profile.baseUrl },
-        { planner: createClaudeAgentPlanner(), driver: d, presenter, clock, paceMs: PACE_MS },
+        {
+          planner: createClaudeAgentPlanner(),
+          driver: d,
+          presenter,
+          clock,
+          paceMs: PACE_MS,
+          signal,
+        },
       );
       if (!result.ok) {
         line(`✗ plan failed: ${result.error.message}`, C.err);
@@ -336,6 +380,7 @@ const main = async (): Promise<void> => {
     });
   };
 
+  // ---- sessions -----------------------------------------------------------
   const listSessions = async (): Promise<void> => {
     const sessions = await conversationStore.list();
     if (sessions.length === 0) {
@@ -349,7 +394,23 @@ const main = async (): Promise<void> => {
         C.muted,
       );
     }
-    line('resume one with:  /resume <id>', C.muted);
+    line('view one with /view <id>, continue one with /resume <id>', C.muted);
+  };
+
+  const renderPast = (m: AgentMessage): void => {
+    if (m.kind === 'status' && m.text.startsWith('you: ')) line(`you: ${m.text.slice(5)}`, C.you);
+    else renderMsg(m);
+  };
+
+  const viewSession = async (id: string): Promise<void> => {
+    const log = await conversationStore.load(id);
+    if (!log) {
+      line(`✗ no session ${id}`, C.err);
+      return;
+    }
+    line(`— ${log.title || id} · ${String(log.turns.length)} msgs —`, C.text);
+    for (const t of log.turns) renderPast(t.message);
+    line('— end of transcript —', C.muted);
   };
 
   const continuationSeed = (log: ConversationLog): string => {
@@ -390,6 +451,7 @@ const main = async (): Promise<void> => {
     line(summarizeMemory(mem) || 'no memory recorded for this app yet', C.muted);
   };
 
+  // ---- token --------------------------------------------------------------
   const handleToken = async (value: string): Promise<void> => {
     if (value === '') {
       const set = (await loadToken()) !== null;
@@ -413,13 +475,84 @@ const main = async (): Promise<void> => {
     );
   };
 
+  // ---- config editor ------------------------------------------------------
+  const persist = async (next: DemoProfile): Promise<void> => {
+    try {
+      const path = await saveProfile(next);
+      profile = { ...next, source: path };
+      refreshHeader();
+      line(`saved profile → ${path}`, C.ok);
+    } catch (e) {
+      line(`✗ could not save profile: ${String(e)}`, C.err);
+    }
+  };
+
+  const handleConfig = async (args: readonly string[]): Promise<void> => {
+    const [sub, kind, ...rest] = args;
+    if (sub === undefined) {
+      line(`profile: ${profile.source ?? '(defaults)'}`, C.muted);
+      line(`base URL: ${profile.baseUrl}`, C.muted);
+      line(`personas: ${profile.personas.map((p) => `${p.id} (${p.label})`).join(', ')}`, C.muted);
+      line(
+        'edit: /config set url <u> · set persona <id> <label> <color> · rm persona <id>',
+        C.muted,
+      );
+      return;
+    }
+    if (sub === 'set' && kind === 'url' && rest[0] !== undefined) {
+      await persist({ ...profile, baseUrl: rest[0] });
+      return;
+    }
+    if (sub === 'set' && kind === 'persona' && rest.length >= 3) {
+      const [id, label, color] = rest as [string, string, string];
+      const others = profile.personas.filter((p) => p.id !== id);
+      await persist({ ...profile, personas: [...others, { id, label, color }] });
+      return;
+    }
+    if (sub === 'rm' && kind === 'persona' && rest[0] !== undefined) {
+      const personas = profile.personas.filter((p) => p.id !== rest[0]);
+      if (personas.length === 0) {
+        line('✗ cannot remove the last persona', C.err);
+        return;
+      }
+      await persist({ ...profile, personas });
+      return;
+    }
+    line(
+      'usage: /config · /config set url <u> · set persona <id> <label> <color> · rm persona <id>',
+      C.err,
+    );
+  };
+
+  const toggleBox = async (): Promise<void> => {
+    if (!driver) {
+      line('no live session — the in-page box appears once a session starts', C.muted);
+      return;
+    }
+    boxVisible = !boxVisible;
+    await driver.setVisible(boxVisible).catch(() => undefined);
+    line(`in-page box ${boxVisible ? 'shown' : 'hidden'}`, C.muted);
+  };
+
+  const stop = (): void => {
+    if (session) {
+      void session.interrupt();
+      line('interrupted — send a message to continue', C.muted);
+    } else if (activeRun) {
+      activeRun.controller.abort();
+      void activeRun.browser.close().catch(() => undefined);
+      line('run aborted', C.muted);
+    } else line('nothing to stop', C.muted);
+  };
+
   // ---- command dispatch ---------------------------------------------------
   input.on(InputRenderableEvents.ENTER, (raw: string) => {
     const value = raw.trim();
     input.value = '';
     if (value === '') return;
-    const [cmd, ...rest] = value.split(/\s+/);
-    const arg = value.slice((cmd ?? '').length).trim();
+    const parts = value.split(/\s+/);
+    const cmd = parts[0] ?? '';
+    const arg = value.slice(cmd.length).trim();
     switch (cmd) {
       case '/help':
         for (const l of HELP) line(l, C.muted);
@@ -428,10 +561,7 @@ const main = async (): Promise<void> => {
         void endSession().finally(() => renderer.destroy());
         return;
       case '/stop':
-        if (session) {
-          void session.interrupt();
-          line('interrupted — send a message to continue', C.muted);
-        } else line('no live session', C.muted);
+        stop();
         return;
       case '/end':
         void endSession().then(() => line('— session ended —', C.muted));
@@ -447,23 +577,25 @@ const main = async (): Promise<void> => {
       case '/sessions':
         void listSessions();
         return;
+      case '/view':
+        if (parts[1] === undefined) line('usage: /view <id>', C.err);
+        else void viewSession(parts[1]);
+        return;
       case '/resume':
-        if (rest[0] === undefined) line('usage: /resume <id>', C.err);
-        else void resumeSession(rest[0]);
+        if (parts[1] === undefined) line('usage: /resume <id>', C.err);
+        else void resumeSession(parts[1]);
         return;
       case '/memory':
         void showMemory();
+        return;
+      case '/box':
+        void toggleBox();
         return;
       case '/token':
         void handleToken(arg);
         return;
       case '/config':
-        line(`profile: ${profile.source ?? '(defaults)'}`, C.muted);
-        line(`base URL: ${profile.baseUrl}`, C.muted);
-        line(
-          `personas: ${profile.personas.map((p) => `${p.id} (${p.label})`).join(', ')}`,
-          C.muted,
-        );
+        void handleConfig(parts.slice(1));
         return;
       default:
         if (value.startsWith('/')) line(`unknown command ${cmd} — /help`, C.err);
@@ -478,9 +610,16 @@ const main = async (): Promise<void> => {
   line(
     profile.source !== undefined
       ? `profile: ${profile.source}`
-      : 'no profile file — using defaults (set AYD_PROFILE or ~/.config/ayd/profile.json)',
+      : 'no profile file — using defaults (set AYD_PROFILE or ~/.config/ayd/profile.json, or /config set …)',
     C.muted,
   );
+  // Prerequisite check, shown up front.
+  void runPreflight().then((pf) => {
+    line(
+      `checks · browser: ${pf.browser.ok ? pf.browser.name : 'NONE — install Chrome'} · claude code: ${pf.claudeCode.ok ? (pf.claudeCode.version ?? 'ok') : 'NOT FOUND — run claude login'}`,
+      pf.browser.ok && pf.claudeCode.ok ? C.ok : C.err,
+    );
+  });
 };
 
 void main();

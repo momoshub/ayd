@@ -1,6 +1,6 @@
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { Persona } from '@ayd/core';
 
 /**
@@ -50,6 +50,25 @@ const parseProfile = (input: unknown): DemoProfile | null => {
   }
   if (personas.length === 0) return null;
   return { baseUrl: input['baseUrl'], personas };
+};
+
+/** Where `/config set` writes: AYD_PROFILE if set, else the per-user config file. */
+export const profileWritePath = (): string =>
+  process.env['AYD_PROFILE'] ?? join(homedir(), '.config', 'ayd', 'profile.json');
+
+/** Persist an edited profile; returns the path written. */
+export const saveProfile = async (p: {
+  baseUrl: string;
+  personas: readonly Persona[];
+}): Promise<string> => {
+  const path = profileWritePath();
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(
+    path,
+    JSON.stringify({ baseUrl: p.baseUrl, personas: p.personas }, null, 2),
+    'utf8',
+  );
+  return path;
 };
 
 /** Load the first valid profile file found, else the defaults. */
