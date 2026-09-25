@@ -7,6 +7,8 @@ import {
   InputRenderableEvents,
   type KeyEvent,
   ScrollBoxRenderable,
+  SelectRenderable,
+  SelectRenderableEvents,
   TextAttributes,
   TextRenderable,
 } from '@opentui/core';
@@ -16,12 +18,12 @@ import {
   type Clock,
   type ConversationLog,
   type ConversationTurn,
+  emptyMemory,
   parseDemoScript,
   planAndRun,
   type Presenter,
   type RunEvent,
   runScript,
-  summarizeMemory,
 } from '@ayd/core';
 import { createPlaywrightDriver, launchDemoBrowser, type PlaywrightDriver } from '@ayd/engine';
 import { createClaudeAgentPlanner, createInteractiveAgent } from '@ayd/planner';
@@ -195,9 +197,9 @@ const main = async (): Promise<void> => {
     makeBtn('Plan…', () => prefill('/plan ')),
     makeBtn('Run…', () => prefill('/run ')),
     sep(),
-    makeBtn('Sessions', () => void listSessions()),
-    makeBtn('Memory', () => void showMemory()),
-    makeBtn('Settings', () => void handleConfig([])),
+    makeBtn('Sessions', () => void sessionsMenu()),
+    makeBtn('Memory', () => void memoryMenu()),
+    makeBtn('Settings', () => settingsMenu()),
   ].forEach((b) => buttonBar.add(b));
   root.add(buttonBar);
 
@@ -268,6 +270,14 @@ const main = async (): Promise<void> => {
   // Tab completes the highlighted command; ↑/↓ move the selection. Global listeners
   // run before the focused input, so stopPropagation keeps these keys out of the text.
   renderer.keyInput.on('keypress', (key: KeyEvent) => {
+    if (menuOpen) {
+      // The focused Select handles ↑/↓/Enter; Esc backs out of the menu.
+      if (key.name === 'escape') {
+        closeMenu();
+        key.stopPropagation();
+      }
+      return;
+    }
     if (matches.length === 0) return;
     if (key.name === 'tab') {
       acceptSuggest();
@@ -298,6 +308,9 @@ const main = async (): Promise<void> => {
   let boxVisible = true;
   // A one-shot /plan or /run, abortable via /stop.
   let activeRun: { controller: AbortController; browser: Browser } | null = null;
+  // Menu/prompt UI state.
+  let menuOpen = false;
+  let promptMode: { onValue: (v: string) => void } | null = null;
 
   interface SessionState {
     id: string;
@@ -528,22 +541,6 @@ const main = async (): Promise<void> => {
   };
 
   // ---- sessions -----------------------------------------------------------
-  const listSessions = async (): Promise<void> => {
-    const sessions = await conversationStore.list();
-    if (sessions.length === 0) {
-      line('no saved conversations yet', C.muted);
-      return;
-    }
-    line(`saved conversations (${String(sessions.length)}):`, C.text);
-    for (const s of sessions.slice(0, 20)) {
-      line(
-        `  ${s.id}  ·  ${s.title || '(untitled)'}  ·  ${String(s.turnCount)} msgs  ·  ${new Date(s.startedAt).toLocaleString()}`,
-        C.muted,
-      );
-    }
-    line('view one with /view <id>, continue one with /resume <id>', C.muted);
-  };
-
   const renderPast = (m: AgentMessage): void => {
     if (m.kind === 'status' && m.text.startsWith('you: ')) line(`you: ${m.text.slice(5)}`, C.you);
     else renderMsg(m);
@@ -591,11 +588,6 @@ const main = async (): Promise<void> => {
     }
     line(`resuming ${id} — the agent will re-achieve the previous state…`, C.muted);
     await startOrSend(continuationSeed(log), `resume: ${log.title}`);
-  };
-
-  const showMemory = async (): Promise<void> => {
-    const mem = await memoryStore.load(profile.baseUrl);
-    line(summarizeMemory(mem) || 'no memory recorded for this app yet', C.muted);
   };
 
   // ---- token --------------------------------------------------------------
@@ -693,6 +685,300 @@ const main = async (): Promise<void> => {
     } else line('nothing to stop', C.muted);
   };
 
+  // ---- menus (navigable lists) -------------------------------------------
+  // A floating modal that hosts a keyboard-navigable Select. Arrow keys move,
+  // Enter picks, Esc backs out — the friendly alternative to slash commands.
+  const menuBox = new BoxRenderable(renderer, {
+    position: 'absolute',
+    left: 4,
+    right: 4,
+    top: 2,
+    bottom: 2,
+    zIndex: 50,
+    border: true,
+    borderStyle: 'rounded',
+    borderColor: C.accent,
+    title: 'menu',
+    backgroundColor: '#0d0f14',
+    flexDirection: 'column',
+    visible: false,
+  });
+  root.add(menuBox);
+
+  const closeMenu = (): void => {
+    menuOpen = false;
+    menuBox.visible = false;
+    menuBox.getChildren().forEach((c) => c.destroyRecursively());
+    input.focus();
+    renderer.requestRender();
+  };
+
+  interface MenuItem {
+    name: string;
+    description?: string;
+    value: string;
+  }
+  const openMenu = (title: string, items: MenuItem[], onPick: (value: string) => void): void => {
+    menuBox.getChildren().forEach((c) => c.destroyRecursively());
+    menuBox.title = title;
+    const sel = new SelectRenderable(renderer, {
+      flexGrow: 1,
+      width: '100%',
+      showDescription: true,
+      options: items.map((o) => ({
+        name: o.name,
+        description: o.description ?? '',
+        value: o.value,
+      })),
+      backgroundColor: '#0d0f14',
+      selectedBackgroundColor: C.accent,
+    });
+    sel.on(SelectRenderableEvents.ITEM_SELECTED, (_i, opt) => {
+      const raw = (opt as { value?: unknown }).value;
+      closeMenu();
+      onPick(typeof raw === 'string' ? raw : '');
+    });
+    menuBox.add(sel);
+    menuBox.add(
+      new TextRenderable(renderer, {
+        content: '↑/↓ move · Enter select · Esc back',
+        fg: C.muted,
+        flexShrink: 0,
+      }),
+    );
+    menuOpen = true;
+    menuBox.visible = true;
+    sel.focus();
+    renderer.requestRender();
+  };
+
+  // Repurpose the input for a one-line prompt; the next Enter feeds `onValue`.
+  const promptInput = (label: string, initial: string, onValue: (v: string) => void): void => {
+    line(`✎ ${label}  (Enter to save · empty to cancel)`, C.accent);
+    promptMode = { onValue };
+    input.value = initial;
+    renderSuggest();
+    input.focus();
+  };
+
+  // -- sessions menu --
+  const sessionsMenu = async (): Promise<void> => {
+    const list = await conversationStore.list();
+    if (list.length === 0) {
+      line('no saved conversations yet', C.muted);
+      return;
+    }
+    openMenu(
+      'sessions — pick one',
+      list.slice(0, 50).map((s) => ({
+        name: s.title || '(untitled)',
+        description: `${new Date(s.startedAt).toLocaleString()} · ${String(s.turnCount)} msgs`,
+        value: s.id,
+      })),
+      (id) => sessionActionMenu(id),
+    );
+  };
+  const sessionActionMenu = (id: string): void => {
+    openMenu(
+      `session · ${id}`,
+      [
+        {
+          name: 'Resume',
+          description: 'agent re-achieves the state, then continues',
+          value: 'resume',
+        },
+        { name: 'View', description: 'print the transcript (read-only)', value: 'view' },
+        { name: 'Delete', description: 'remove this saved conversation', value: 'delete' },
+        { name: 'Back', description: 'to the session list', value: 'back' },
+      ],
+      (v) => {
+        if (v === 'resume') void resumeSession(id);
+        else if (v === 'view') void viewSession(id);
+        else if (v === 'delete')
+          void conversationStore.remove(id).then(() => {
+            line(`deleted session ${id}`, C.muted);
+            void sessionsMenu();
+          });
+        else void sessionsMenu();
+      },
+    );
+  };
+
+  // -- memory menu --
+  const clearMemory = async (): Promise<void> => {
+    await memoryStore.save(emptyMemory(profile.baseUrl, new Date().toISOString()));
+  };
+  const deleteMemoryItem = async (kind: string, key: string): Promise<void> => {
+    const mem = await memoryStore.load(profile.baseUrl);
+    const now = new Date().toISOString();
+    await memoryStore.save(
+      kind === 'feature'
+        ? { ...mem, features: mem.features.filter((f) => f.id !== key), updatedAt: now }
+        : {
+            ...mem,
+            interactions: mem.interactions.filter((_, i) => String(i) !== key),
+            updatedAt: now,
+          },
+    );
+  };
+  const editMemoryItem = async (kind: string, key: string): Promise<void> => {
+    const mem = await memoryStore.load(profile.baseUrl);
+    if (kind === 'feature') {
+      const f = mem.features.find((x) => x.id === key);
+      if (!f) return;
+      promptInput('feature title', f.title, (v) => {
+        void memoryStore.load(profile.baseUrl).then((m2) =>
+          memoryStore
+            .save({
+              ...m2,
+              features: m2.features.map((x) =>
+                x.id === key ? { ...x, title: v, updatedAt: new Date().toISOString() } : x,
+              ),
+              updatedAt: new Date().toISOString(),
+            })
+            .then(() => line('updated', C.muted)),
+        );
+      });
+    } else {
+      const idx = Number(key);
+      const it = mem.interactions[idx];
+      if (!it) return;
+      promptInput('interaction summary', it.summary, (v) => {
+        void memoryStore.load(profile.baseUrl).then((m2) =>
+          memoryStore
+            .save({
+              ...m2,
+              interactions: m2.interactions.map((x, i) => (i === idx ? { ...x, summary: v } : x)),
+              updatedAt: new Date().toISOString(),
+            })
+            .then(() => line('updated', C.muted)),
+        );
+      });
+    }
+  };
+  const memoryItemMenu = (kind: string, key: string): void => {
+    openMenu(
+      `memory · ${kind}`,
+      [
+        {
+          name: 'Edit',
+          description: kind === 'feature' ? 'change the title' : 'change the summary',
+          value: 'edit',
+        },
+        { name: 'Delete', value: 'delete' },
+        { name: 'Back', value: 'back' },
+      ],
+      (v) => {
+        if (v === 'edit') void editMemoryItem(kind, key);
+        else if (v === 'delete')
+          void deleteMemoryItem(kind, key).then(() => {
+            line('deleted', C.muted);
+            void memoryMenu();
+          });
+        else void memoryMenu();
+      },
+    );
+  };
+  const memoryMenu = async (): Promise<void> => {
+    const mem = await memoryStore.load(profile.baseUrl);
+    const items: MenuItem[] = [];
+    mem.features.forEach((f) =>
+      items.push({
+        name: `★ ${f.title}`,
+        description: [f.path, f.description].filter(Boolean).join(' — '),
+        value: 'f:' + f.id,
+      }),
+    );
+    mem.interactions.forEach((it, i) =>
+      items.push({
+        name: `· ${it.summary}`,
+        description: new Date(it.at).toLocaleString(),
+        value: 'i:' + i,
+      }),
+    );
+    if (items.length === 0) {
+      line('no memory recorded for this app yet', C.muted);
+      return;
+    }
+    items.push({
+      name: 'Clear all memory',
+      description: 'forget everything for this app',
+      value: 'clear',
+    });
+    openMenu('memory — pick an item', items, (v) => {
+      if (v === 'clear') void clearMemory().then(() => line('memory cleared', C.muted));
+      else if (v.startsWith('f:')) memoryItemMenu('feature', v.slice(2));
+      else if (v.startsWith('i:')) memoryItemMenu('interaction', v.slice(2));
+    });
+  };
+
+  // -- settings menu --
+  const personaMenu = (id: string): void => {
+    openMenu(
+      `persona · ${id}`,
+      [
+        { name: 'Edit', description: 'label + color', value: 'edit' },
+        { name: 'Delete', value: 'delete' },
+        { name: 'Back', value: 'back' },
+      ],
+      (v) => {
+        const p = profile.personas.find((x) => x.id === id);
+        if (v === 'edit' && p)
+          promptInput(`label + color for ${id}`, `${p.label} ${p.color}`, (s) => {
+            const [label, color] = s.split(/\s+/);
+            if (!label || !color) {
+              line('need: label color', C.err);
+              return;
+            }
+            void persist({
+              ...profile,
+              personas: profile.personas.map((x) => (x.id === id ? { id, label, color } : x)),
+            });
+          });
+        else if (v === 'delete') {
+          const rest = profile.personas.filter((x) => x.id !== id);
+          if (rest.length === 0) line('cannot remove the last persona', C.err);
+          else void persist({ ...profile, personas: rest });
+        } else settingsMenu();
+      },
+    );
+  };
+  const settingsMenu = (): void => {
+    const items: MenuItem[] = [
+      { name: 'Base URL', description: profile.baseUrl, value: 'url' },
+      { name: 'Add persona', description: 'id label color', value: 'addp' },
+    ];
+    profile.personas.forEach((p) =>
+      items.push({
+        name: `Persona · ${p.id}`,
+        description: `${p.label} · ${p.color}`,
+        value: 'p:' + p.id,
+      }),
+    );
+    items.push({
+      name: 'Token',
+      description: 'set / clear the encrypted Claude token',
+      value: 'token',
+    });
+    openMenu('settings', items, (v) => {
+      if (v === 'url')
+        promptInput('base URL', profile.baseUrl, (u) => void persist({ ...profile, baseUrl: u }));
+      else if (v === 'addp')
+        promptInput('new persona: id label color', '', (s) => {
+          const [id, label, color] = s.split(/\s+/);
+          if (!id || !label || !color) {
+            line('need: id label color', C.err);
+            return;
+          }
+          const others = profile.personas.filter((p) => p.id !== id);
+          void persist({ ...profile, personas: [...others, { id, label, color }] });
+        });
+      else if (v === 'token')
+        promptInput('token (blank cancels · "clear" removes)', '', (t) => void handleToken(t));
+      else if (v.startsWith('p:')) personaMenu(v.slice(2));
+    });
+  };
+
   // ---- command dispatch ---------------------------------------------------
   // Put a command (with a trailing space) in the input, ready for its argument.
   const prefill = (text: string): void => {
@@ -706,6 +992,13 @@ const main = async (): Promise<void> => {
     const value = rawValue.trim();
     input.value = '';
     renderSuggest();
+    if (promptMode) {
+      const cb = promptMode.onValue;
+      promptMode = null;
+      if (value === '') line('cancelled', C.muted);
+      else cb(value);
+      return;
+    }
     if (value === '') return;
     log.debug('submit', value.startsWith('/') ? value : '<message>');
     const parts = value.split(/\s+/);
@@ -733,7 +1026,7 @@ const main = async (): Promise<void> => {
         else void runScriptFile(arg);
         return;
       case '/sessions':
-        void listSessions();
+        void sessionsMenu();
         return;
       case '/view':
         if (parts[1] === undefined) line('usage: /view <id>', C.err);
@@ -744,7 +1037,7 @@ const main = async (): Promise<void> => {
         else void resumeSession(parts[1]);
         return;
       case '/memory':
-        void showMemory();
+        void memoryMenu();
         return;
       case '/box':
         void toggleBox();
@@ -753,7 +1046,8 @@ const main = async (): Promise<void> => {
         void handleToken(arg);
         return;
       case '/config':
-        void handleConfig(parts.slice(1));
+        if (arg === '') settingsMenu();
+        else void handleConfig(parts.slice(1));
         return;
       default:
         if (value.startsWith('/')) line(`unknown command ${cmd} — /help`, C.err);

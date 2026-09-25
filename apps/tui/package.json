@@ -1,6 +1,6 @@
 {
   "name": "@ayd/tui",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "private": true,
   "type": "module",
   "description": "Terminal UI shell for ayd: the live chat-steerable agent in your terminal (OpenTUI, runs on Bun).",
