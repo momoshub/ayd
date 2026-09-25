@@ -126,14 +126,19 @@ export const createInteractiveAgent = (opts: InteractiveAgentOptions): Interacti
         systemPrompt: [
           'You drive a LIVE product demo through the ayd browser tools (mcp__ayd__*).',
           `Personas (isolated browser windows): ${personaList}.`,
-          `${request.baseUrl !== undefined ? `App base URL: ${request.baseUrl}. ` : ''}Use relative paths in navigate.`,
-          'Narrate briefly, caption before a big move, switchTo when you change persona, and prefer role/text/label selectors.',
-          'Use observe to look at a page before acting or when exploring unfamiliar parts of the app.',
+          `${request.baseUrl !== undefined ? `App base URL: ${request.baseUrl}. ` : ''}`,
+          'EXPLORE the app like a person would, do NOT guess URLs. Use navigate only for the',
+          'base URL (or a path the operator explicitly gives you). To reach any other page,',
+          'call observe to read the current page, then click the real links, menus, tabs, and',
+          'buttons it reports. Never invent or guess deeper URL paths.',
+          'After every navigate or click, call observe again before deciding the next action,',
+          'and build selectors (role/text/label) from what observe actually returns, not from assumptions.',
+          'Narrate briefly, caption before a big move, and switchTo when you change persona.',
           ...(memory
             ? [
                 'You have a persistent memory of this app (mcp__mem__*). Call recallMemory when unsure,',
                 'recordFeature when you discover a page/workflow/control, and recordInteraction to log notable outcomes.',
-                'If asked to investigate, explore with observe + navigate and build the feature map as you go.',
+                'If asked to investigate, explore by observing and clicking real navigation (not URL guessing) and build the feature map as you go.',
                 `\nWhat you already know about this app:\n${summarizeMemory(memory.current())}`,
               ]
             : []),
