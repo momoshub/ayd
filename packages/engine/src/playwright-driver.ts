@@ -4,12 +4,13 @@ import type {
   InPageChat,
   PageObservation,
   PageObserver,
+  PageShooter,
   Persona,
   Selector,
   TabInfo,
   TabReporter,
 } from '@ayd/core';
-import type { Browser, BrowserContext, Locator, Page } from 'playwright';
+import type { Browser, BrowserContext, FrameLocator, Locator, Page } from 'playwright';
 import { toLocatorCall } from './locator.js';
 import { captionAnchor, OVERLAY_RUNTIME } from './overlays.js';
 
@@ -22,7 +23,8 @@ export interface PlaywrightDriverConfig {
   readonly pointerSteps?: number;
 }
 
-export interface PlaywrightDriver extends BrowserDriver, PageObserver, InPageChat, TabReporter {
+export interface PlaywrightDriver
+  extends BrowserDriver, PageObserver, PageShooter, InPageChat, TabReporter {
   close(): Promise<void>;
 }
 
@@ -93,20 +95,26 @@ export const createPlaywrightDriver = (config: PlaywrightDriverConfig): Playwrig
 
   const resolveLocator = (page: Page, selector: Selector): Locator => {
     const call = toLocatorCall(selector);
+    // Descend any iframe chain first, so selectors can reach elements nested in
+    // (possibly nested) iframes. Both Page and FrameLocator expose the same finders.
+    const root: Page | FrameLocator =
+      selector.frame !== undefined && selector.frame.length > 0
+        ? selector.frame.reduce<Page | FrameLocator>((f, sel) => f.frameLocator(sel), page)
+        : page;
     switch (call.method) {
       case 'getByRole':
-        return page.getByRole(call.role as Parameters<Page['getByRole']>[0], {
+        return root.getByRole(call.role as Parameters<Page['getByRole']>[0], {
           ...(call.name !== undefined ? { name: call.name } : {}),
           ...(call.exact !== undefined ? { exact: call.exact } : {}),
         });
       case 'getByText':
-        return page.getByText(call.text);
+        return root.getByText(call.text);
       case 'getByTestId':
-        return page.getByTestId(call.testId);
+        return root.getByTestId(call.testId);
       case 'getByLabel':
-        return page.getByLabel(call.label);
+        return root.getByLabel(call.label);
       case 'locator':
-        return page.locator(call.css);
+        return root.locator(call.css);
     }
   };
 
@@ -226,18 +234,16 @@ export const createPlaywrightDriver = (config: PlaywrightDriverConfig): Playwrig
         .evaluate(() => {
           const clean = (el: Element): string => (el.textContent ?? '').replace(/\s+/g, ' ').trim();
           const uniq = (values: string[]): string[] => [...new Set(values.filter(Boolean))];
-          const headings = uniq(
-            Array.from(document.querySelectorAll('h1,h2,h3'), (el) => clean(el).slice(0, 100)),
-          ).slice(0, 30);
-          const links = Array.from(document.querySelectorAll('a[href]'), (a) => ({
-            text: clean(a).slice(0, 80),
-            href: a.getAttribute('href') ?? '',
-          }))
-            .filter((l) => l.text !== '')
-            .slice(0, 50);
-          const controls = uniq(
+          const docHeadings = (d: Document): string[] =>
+            Array.from(d.querySelectorAll('h1,h2,h3'), (el) => clean(el).slice(0, 100));
+          const docLinks = (d: Document): { text: string; href: string }[] =>
+            Array.from(d.querySelectorAll('a[href]'), (a) => ({
+              text: clean(a).slice(0, 80),
+              href: a.getAttribute('href') ?? '',
+            })).filter((l) => l.text !== '');
+          const docControls = (d: Document): string[] =>
             Array.from(
-              document.querySelectorAll(
+              d.querySelectorAll(
                 'button,[role="button"],[role="menuitem"],[role="tab"],input,select,textarea',
               ),
               (el) =>
@@ -248,8 +254,25 @@ export const createPlaywrightDriver = (config: PlaywrightDriverConfig): Playwrig
                   el.getAttribute('name') ||
                   ''
                 ).slice(0, 60),
-            ),
-          ).slice(0, 60);
+            );
+          // Look at the main document plus any SAME-ORIGIN iframe documents (cross-origin
+          // throws and is skipped), so nested app content is visible to the agent.
+          const docs: Document[] = [document];
+          const frames: { name: string; src: string }[] = [];
+          for (const f of Array.from(document.querySelectorAll('iframe'))) {
+            frames.push({
+              name: f.getAttribute('name') ?? f.id ?? '',
+              src: f.getAttribute('src') ?? '',
+            });
+            try {
+              if (f.contentDocument) docs.push(f.contentDocument);
+            } catch {
+              /* cross-origin frame — not readable */
+            }
+          }
+          const headings = uniq(docs.flatMap(docHeadings)).slice(0, 30);
+          const links = docs.flatMap(docLinks).slice(0, 50);
+          const controls = uniq(docs.flatMap(docControls)).slice(0, 60);
           const loading =
             document.readyState !== 'complete' ||
             document.querySelector(
@@ -263,9 +286,16 @@ export const createPlaywrightDriver = (config: PlaywrightDriverConfig): Playwrig
             controls,
             readyState: document.readyState,
             loading,
+            frames,
           };
         })
-        .catch(() => ({ url: '', title: '', headings: [], links: [], controls: [] }));
+        .catch(() => ({ url: '', title: '', headings: [], links: [], controls: [], frames: [] }));
+    },
+
+    async screenshot(personaId): Promise<string> {
+      const session = await ensureSession(personaId);
+      const buf = await session.page.screenshot({ type: 'png' });
+      return buf.toString('base64');
     },
 
     onOperatorMessage(cb) {

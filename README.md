@@ -16,30 +16,26 @@ they're watching.
   live call: repeatable, no surprises.
 - **Plan from prose** — hand it a description; the AI planner explores the app and
   _compiles_ a reviewable script, which you then run deterministically.
-- **Chat live** — steer a running agent from the control window _or_ from a floating,
-  hidable box injected into the driven page itself. Stop and Continue are code-driven
-  buttons, not prompts. Per-tab progress shows what each persona window is doing.
-- **Remember** — a per-app feature-map/memory: the agent recalls what it learned and
-  can investigate the app (observe + record) to build it. Conversations are saved and
-  browsable.
-- **Recover** — when a selector drifts mid-run, the planner is asked for the next
-  action instead of the demo dying.
+- **Chat live** — steer a running agent from the **terminal UI** _or_ from a floating,
+  hidable box injected into the driven page itself. `/stop` interrupts, sending a message
+  continues. The agent explores the app by observing and clicking (it does not guess URLs),
+  can take screenshots to read a page, and works with nested iframes.
+- **Recover** — when a browser window is closed mid-run it reopens on the next action, and
+  when a selector drifts the planner is asked for the next action instead of the demo dying.
 
-The AI authenticates through your **Claude Code login** (OAuth) or a token saved in
-Settings — no key in the repo.
+The AI authenticates through your **Claude Code login** (OAuth) — no key in the repo.
 
 ## Status
 
-Green under the full quality gate (46 unit tests + an opt-in browser integration test):
+Green under the full quality gate (unit tests + an opt-in browser integration test):
 
 | Layer                                     | Package        | State                               |
 | ----------------------------------------- | -------------- | ----------------------------------- |
 | Domain + use-cases + ports (pure, tested) | `@ayd/core`    | ✅ implemented                      |
 | Playwright browser driver + overlays      | `@ayd/engine`  | ✅ implemented (+ integration test) |
 | Claude Agent SDK planner                  | `@ayd/planner` | ✅ implemented                      |
-| Electron shell + control UI               | `apps/desktop` | ✅ implemented (run needs binaries) |
-
-Remaining: recovery on selector drift and polish (P4–P5 in [`docs/architecture.md`](docs/architecture.md)).
+| Terminal UI (OpenTUI, on Bun)             | `apps/tui`     | ✅ implemented                      |
+| Headless/headed runner                    | `apps/cli`     | ✅ implemented                      |
 
 ## Quickstart
 
@@ -59,56 +55,35 @@ Per-task scripts:
 | `pnpm lint` / `pnpm lint:fix`   | eslint (flat config, type-aware)         |
 | `pnpm format`                   | prettier                                 |
 
-## Download (macOS)
+## Run (terminal UI)
 
-Grab the `.zip` from the latest [GitHub release](https://github.com/momoshub/ayd/releases),
-unzip, and move `ayd.app` to `/Applications`. It is **unsigned**, so on first open macOS
-Gatekeeper blocks it — clear the quarantine flag once:
+The shell is a **terminal UI** built on [OpenTUI](https://github.com/anomalyco/opentui), so
+it runs on **[Bun](https://bun.sh)** (1.3+). It drives your pre-installed Chrome/Chromium-based
+browser, so there is no browser download.
 
 ```bash
-xattr -dr com.apple.quarantine /Applications/ayd.app
+# once: a Chromium-based browser (Chrome/Edge/Brave/Chromium) and Claude Code, logged in
+claude login
+
+cd apps/tui && bun start        # or: bun run src/main.ts
 ```
 
-Prerequisites the app checks for on launch (shown as header chips):
+Type an instruction and press Enter — the agent opens the browser and drives it live.
+`/stop` interrupts, `/end` closes the session, `/quit` (or Ctrl+C) exits.
 
-- a **Chromium-based browser** (Google Chrome / Edge / Brave / Chromium) — the app drives
-  your installed browser, it ships none;
-- the **Claude Code** CLI, logged in (`claude login`) — needed for plan and chat modes.
+**Profile** (target app + personas): the app runs on generic defaults
+(`http://localhost:3000`, an `admin` and a `user` persona) until you point it at your app.
+Set `AYD_PROFILE=/path/to/profile.json`, or drop one at `~/.config/ayd/profile.json` or
+`config/local/profile.json` (gitignored). Shape: see
+[`config/profile.example.json`](config/profile.example.json). It names your target app and
+accounts, so it stays machine-local, never committed.
 
-Everything else (the target app URL, personas) is set in-app under **Settings**.
+### Run without the UI (CLI, Node)
 
-## Run the app (from source)
-
-The app drives real browser windows and (for plan mode) uses your Claude Code login,
-so a first run needs the browser binaries beyond `pnpm install`:
-
-```bash
-# the browser + Electron binaries (declined at install to keep it light)
-pnpm --filter @ayd/engine exec playwright install chromium
-pnpm --filter @ayd/desktop exec electron --version   # triggers Electron's binary fetch
-# (plan + chat modes also need the Claude Code CLI, logged in: `claude login`)
-
-# build and launch
-pnpm --filter @ayd/desktop build
-pnpm --filter @ayd/desktop start
-```
-
-There is no config file to edit. On first launch the app opens **Settings**, where
-you set the target app's base URL and the personas (id, label, colour) in the GUI.
-It is saved to your OS user-data dir (never the repo) and reopened from the header
-any time. The profile names your target app and accounts, so it stays machine-local.
-
-Then chat with the **Live agent** to drive the open browser (interrupt or steer it
-any time), paste a description and hit **Plan & Run**, or paste a `DemoScript` JSON
-(see [`examples/hello.demo.json`](examples/hello.demo.json)) and hit **Run Script**.
-Live run events stream into the log. Opt-in browser test: `pnpm test:integration`.
-
-### Run without the UI (CLI)
-
-Same engine, no Electron — good for a quick check or CI:
+Same engine, no TUI — good for a quick check or CI:
 
 ```bash
-pnpm --filter @ayd/engine exec playwright install chromium   # once
+pnpm --filter @ayd/engine exec playwright install chromium   # once, if no system Chrome
 pnpm --filter @ayd/cli build
 node apps/cli/dist/main.js examples/cpv2.demo.json            # headed, two-persona demo
 node apps/cli/dist/main.js examples/hello.demo.json --headless
@@ -119,11 +94,11 @@ node apps/cli/dist/main.js examples/hello.demo.json --headless
 
 ```
 packages/core/    framework-free domain: entities, use-cases, ports. Zero I/O, zero vendor SDKs.
-packages/engine/  Playwright adapter — implements the BrowserDriver port + overlays.
-packages/planner/ Claude Agent SDK adapter — implements the AiPlanner port.
-apps/desktop/     Electron main + renderer — the composition root and control UI.
-apps/cli/         headless/headed CLI runner (a second composition root).
-examples/         sample DemoScripts.  config/  example of the profile shape (edited in-app, saved to user-data).
+packages/engine/  Playwright adapter — implements the BrowserDriver port + overlays + screenshots.
+packages/planner/ Claude Agent SDK adapter — the AI planner + the live interactive agent.
+apps/tui/         OpenTUI terminal UI (Bun) — the composition root and live-agent chat.
+apps/cli/         headless/headed CLI runner (a second composition root, Node).
+examples/         sample DemoScripts.  config/  example of the profile shape.
 docs/adr/         architecture decision records.
 ```
 

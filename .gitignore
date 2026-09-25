@@ -32,3 +32,6 @@ secrets/
 .vscode/*
 !.vscode/extensions.json
 !.vscode/settings.json
+
+# installed agent skills (re-add via: npx skills add …)
+.agents/

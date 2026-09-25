@@ -4,7 +4,7 @@
     { "path": "packages/core" },
     { "path": "packages/engine" },
     { "path": "packages/planner" },
-    { "path": "apps/desktop" },
+    { "path": "apps/tui" },
     { "path": "apps/cli" }
   ]
 }

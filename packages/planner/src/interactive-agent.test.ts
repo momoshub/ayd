@@ -1,4 +1,11 @@
-import type { AgentMessage, AppMemory, BrowserDriver, PageObserver, Persona } from '@ayd/core';
+import type {
+  AgentMessage,
+  AppMemory,
+  BrowserDriver,
+  PageObserver,
+  PageShooter,
+  Persona,
+} from '@ayd/core';
 import { emptyMemory } from '@ayd/core';
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentMemory } from './memory-tools.js';
@@ -9,7 +16,7 @@ const personas: Persona[] = [
   { id: 'user', label: 'USER', color: '#22c55e' },
 ];
 
-const stubDriver: BrowserDriver & PageObserver = {
+const stubDriver: BrowserDriver & PageObserver & PageShooter = {
   bringToFront: async () => undefined,
   navigate: async () => undefined,
   click: async () => undefined,
@@ -19,6 +26,7 @@ const stubDriver: BrowserDriver & PageObserver = {
   isVisible: async () => true,
   caption: async () => undefined,
   observe: async () => ({ url: '', title: '', headings: [], links: [], controls: [] }),
+  screenshot: async () => '',
 };
 
 const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 10));

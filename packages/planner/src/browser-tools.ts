@@ -1,5 +1,5 @@
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
-import type { BrowserDriver, PageObserver, Selector } from '@ayd/core';
+import type { BrowserDriver, PageObserver, PageShooter, Selector } from '@ayd/core';
 import { z } from 'zod';
 
 /** Zod shape for a driver-agnostic selector, mirrored from core's Selector. */
@@ -12,12 +12,15 @@ export const selectorSchema = z.object({
   testId: z.string().optional(),
   label: z.string().optional(),
   css: z.string().optional(),
+  /** Descend these iframe CSS selectors (outermost first) before matching. */
+  frame: z.array(z.string()).optional(),
 });
 
 export type SelectorInput = z.infer<typeof selectorSchema>;
 
 /** Convert a tool's selector input into a domain Selector, or null if a required field is missing. */
 export const toDomainSelector = (s: SelectorInput): Selector | null => {
+  const frame = s.frame !== undefined && s.frame.length > 0 ? { frame: s.frame } : {};
   switch (s.kind) {
     case 'role':
       return s.role !== undefined
@@ -26,16 +29,17 @@ export const toDomainSelector = (s: SelectorInput): Selector | null => {
             role: s.role,
             ...(s.name !== undefined ? { name: s.name } : {}),
             ...(s.exact !== undefined ? { exact: s.exact } : {}),
+            ...frame,
           }
         : null;
     case 'text':
-      return s.text !== undefined ? { kind: 'text', text: s.text } : null;
+      return s.text !== undefined ? { kind: 'text', text: s.text, ...frame } : null;
     case 'testId':
-      return s.testId !== undefined ? { kind: 'testId', testId: s.testId } : null;
+      return s.testId !== undefined ? { kind: 'testId', testId: s.testId, ...frame } : null;
     case 'label':
-      return s.label !== undefined ? { kind: 'label', label: s.label } : null;
+      return s.label !== undefined ? { kind: 'label', label: s.label, ...frame } : null;
     case 'css':
-      return s.css !== undefined ? { kind: 'css', css: s.css } : null;
+      return s.css !== undefined ? { kind: 'css', css: s.css, ...frame } : null;
   }
 };
 
@@ -50,6 +54,7 @@ export const BROWSER_TOOL_NAMES = [
   'expect',
   'caption',
   'observe',
+  'screenshot',
 ] as const;
 
 const text = (t: string) => ({ content: [{ type: 'text' as const, text: t }] });
@@ -60,18 +65,27 @@ const need = (name: string) => text(`error: selector for ${name} is missing its 
  * SDK can call to drive the real browser during a live session. Handlers are
  * thin wrappers over the injected BrowserDriver.
  */
-export const createBrowserMcpServer = (driver: BrowserDriver & PageObserver) =>
+export const createBrowserMcpServer = (driver: BrowserDriver & PageObserver & PageShooter) =>
   createSdkMcpServer({
     name: 'ayd',
     version: '0.0.0',
     tools: [
       tool(
         'observe',
-        'Read the current page for a persona (url, title, headings, links, controls) to understand the app or investigate it before acting',
+        'Read the current page for a persona (url, title, headings, links, controls, iframes, load state) to understand the app or investigate it before acting',
         { personaId: z.string() },
         async (a) => {
           const obs = await driver.observe(a.personaId);
           return text(JSON.stringify(obs, null, 2));
+        },
+      ),
+      tool(
+        'screenshot',
+        "Take a screenshot of a persona's current page and SEE it — the fastest way to read a page, and the only way to read cross-origin iframes or canvas",
+        { personaId: z.string() },
+        async (a) => {
+          const data = await driver.screenshot(a.personaId);
+          return { content: [{ type: 'image' as const, data, mimeType: 'image/png' as const }] };
         },
       ),
       tool(
