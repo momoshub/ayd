@@ -1,0 +1,21 @@
+{
+  "name": "@ayd/tui",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Terminal UI shell for ayd: the live chat-steerable agent in your terminal (OpenTUI, runs on Bun).",
+  "bin": {
+    "ayd": "./src/main.ts"
+  },
+  "scripts": {
+    "start": "bun run src/main.ts",
+    "typecheck": "tsgo -b"
+  },
+  "dependencies": {
+    "@ayd/core": "workspace:*",
+    "@ayd/engine": "workspace:*",
+    "@ayd/planner": "workspace:*",
+    "@opentui/core": "^0.5.12",
+    "playwright": "^1.49.0"
+  }
+}

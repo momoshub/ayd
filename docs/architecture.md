@@ -7,15 +7,15 @@ outside world — a browser, an AI, the screen — is an adapter behind a port.
 ## The dependency rule
 
 ```
-        ┌──────────────────────── apps/desktop ────────────────────────┐
-        │ Electron main = composition root · renderer = control UI      │
-        │ implements Presenter (IPC) · wires the adapters below         │
+        ┌──────── apps/tui (OpenTUI, Bun) ──────┬──── apps/cli (Node) ────┐
+        │ composition root · terminal UI        │ composition root · CLI  │
+        │ wires the adapters below              │ wires the adapters      │
         └───────────────┬───────────────────────────┬──────────────────┘
                         │ depends on                 │ depends on
               ┌─────────▼─────────┐        ┌─────────▼─────────┐
               │ packages/engine   │        │ packages/planner  │
               │ Playwright driver │        │ Claude Agent SDK  │
-              │ + overlays        │        │ planner           │
+              │ + overlays        │        │ planner + agent   │
               │ impl BrowserDriver│        │ impl AiPlanner    │
               └─────────┬─────────┘        └─────────┬─────────┘
                         │ depends on                 │ depends on
@@ -27,11 +27,12 @@ outside world — a browser, an AI, the screen — is an adapter behind a port.
                           └────────────────────┘
 ```
 
-Dependencies point **inward only**. `core` never imports Electron, Playwright, a vendor
+Dependencies point **inward only**. `core` never imports the UI shell, Playwright, a vendor
 SDK, or even Node built-ins — enforced by ESLint (`no-restricted-imports`) and the
 workspace package boundary. This keeps the interesting logic pure and 100% unit-testable
 with the fakes in `packages/core/src/testing`, and lets us swap Playwright, the AI vendor,
-or the shell without touching the core.
+or the shell without touching the core — as we did swapping the Electron shell for a TUI
+(see [ADR 0006](adr/0006-terminal-ui-opentui.md)).
 
 ## Core building blocks
 
@@ -64,24 +65,22 @@ script performs.
 
 ## Phase plan
 
-- **P0 — core** ✅ domain + ports + `runScript`, fully tested. _(done)_
-- **P1 — engine + shell** Playwright `BrowserDriver` (windows, isolated persona contexts,
-  overlays: pointer, captions, highlights, coloured frames) and an Electron shell that runs
-  a script end to end with a live step log. No AI yet.
-- **P2 — auth** Claude Code OAuth via the Agent SDK; token in OS keychain (`safeStorage`).
-- **P3 — plan mode** browser actions exposed as in-process MCP tools; prose → plan →
+- **P0 — core** ✅ domain + ports + `runScript`, fully tested.
+- **P1 — engine + shell** ✅ Playwright `BrowserDriver` (windows, isolated persona contexts,
+  overlays: pointer, captions, highlights, coloured frames) driven from a shell.
+- **P2 — plan mode** ✅ browser actions exposed as in-process MCP tools; prose → plan →
   compiled script. Harness locked to `mcp__ayd__*` — no filesystem/bash tools.
-- **P4 — recovery** planner picks the next action on selector drift.
-- **P5 — polish** window layout, pacing, a script library, import/export.
+- **P3 — live agent** ✅ chat-steerable agent (interrupt/continue) that explores by
+  observing + clicking (never guessing URLs), screenshots pages, and works with iframes.
+- **P4 — TUI** ✅ shell swapped from Electron to a terminal UI on OpenTUI/Bun (ADR 0006).
+- **P5 — recovery/polish** selector-drift recovery, session resume, a script library.
 
 ## Security & sensitivity
 
 The repo is private and built to open-source quality, but carries **no secrets**:
 
-- credentials, staging URLs, and real demo accounts live in gitignored local config
-  (`.env`, `config/local/`) or, for the desktop, the OS user-data dir edited in-app: the
-  profile, the feature-map/memory, saved conversations, and the Claude Code token
-  (encrypted via Electron safeStorage), never in tracked files;
+- credentials, staging URLs, and real demo accounts live in gitignored local config: the
+  profile at `AYD_PROFILE` / `~/.config/ayd/profile.json` / `config/local/`, and `.env` —
+  never in tracked files;
 - the AI planner authenticates through the user's Claude Code login (OAuth), so there is no
-  API key to store in the repo;
-- the token, when cached, uses the OS keychain via Electron `safeStorage`, not a file.
+  API key to store in the repo.

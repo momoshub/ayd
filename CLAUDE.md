@@ -12,7 +12,7 @@ coloured frame per persona. Demos come from a **script** (deterministic) or are
 
 ## Golden rules
 
-1. **The dependency rule is law.** `packages/core` depends on **nothing** — no Electron,
+1. **The dependency rule is law.** `packages/core` depends on **nothing** — no OpenTUI,
    no Playwright, no vendor SDK, no Node built-ins. Side effects enter only through
    **ports** (interfaces in `packages/core/src/ports`). Adapters depend on `core`, never
    the reverse. This is enforced by ESLint (`no-restricted-imports` in `eslint.config.mjs`)
@@ -23,11 +23,9 @@ coloured frame per persona. Demos come from a **script** (deterministic) or are
 3. **`pnpm check` is the gate.** Typecheck (TS7) + lint + test must pass before any commit.
    Never commit red.
 4. **Nothing sensitive in the repo.** No credentials, staging URLs, tokens, or real demo
-   accounts — ever. They live in gitignored local config (`.env`, `config/local/`) or, for
-   the desktop, the OS user-data dir: the profile, the feature-map/memory, saved
-   conversations, and the Claude Code token (encrypted via Electron safeStorage). All are
-   edited in-app, never committed. The AI uses the user's Claude Code OAuth or that saved
-   token, not a committed key.
+   accounts — ever. They live in gitignored local config: the profile at `AYD_PROFILE` /
+   `~/.config/ayd/profile.json` / `config/local/`, and `.env`. The AI uses the user's Claude
+   Code OAuth login, not a committed key.
 
 ## Commands
 
@@ -44,7 +42,8 @@ pnpm format
 ## Architecture (clean, ports & adapters)
 
 ```
-apps/desktop  ─┐  (composition root: wires adapters to use-cases; Electron + UI)
+apps/tui   ─┐  (composition root: wires adapters to use-cases; OpenTUI terminal UI on Bun)
+apps/cli   ─┤  (second composition root: headless/headed runner on Node)
 packages/engine ─┼─▶ implement ports defined in ─▶  packages/core  (domain + use-cases)
 packages/planner ┘
 ```
@@ -57,9 +56,9 @@ packages/planner ┘
 - **Application** (`core/src/application`): use-cases like `runScript` — orchestrate the
   domain through ports. `runScript` is resilient: a failing step is recorded and the run
   continues (a demo degrades, it doesn't halt).
-- **Adapters** (planned): `engine` implements `BrowserDriver` with Playwright + overlays;
-  `planner` implements the AI planner with the Claude Agent SDK; `apps/desktop` implements
-  `Presenter` over Electron IPC and is the composition root.
+- **Adapters**: `engine` implements `BrowserDriver`/`PageObserver`/`PageShooter` with
+  Playwright + overlays; `planner` implements the AI planner + live interactive agent with
+  the Claude Agent SDK; `apps/tui` (OpenTUI, Bun) and `apps/cli` (Node) are composition roots.
 
 Full rationale + the compile-then-run pattern: [`docs/architecture.md`](docs/architecture.md)
 and the ADRs in [`docs/adr/`](docs/adr/).

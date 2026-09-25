@@ -42,8 +42,8 @@ export default tseslint.config(
         {
           patterns: [
             {
-              group: ['electron', 'electron/*'],
-              message: 'core is framework-free: keep Electron in apps/desktop.',
+              group: ['electron', 'electron/*', '@opentui/*'],
+              message: 'core is framework-free: keep the UI shell in apps/tui.',
             },
             {
               group: ['playwright', 'playwright-core', 'playwright/*'],
