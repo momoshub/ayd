@@ -23,8 +23,9 @@ coloured frame per persona. Demos come from a **script** (deterministic) or are
 3. **`pnpm check` is the gate.** Typecheck (TS7) + lint + test must pass before any commit.
    Never commit red.
 4. **Nothing sensitive in the repo.** No credentials, staging URLs, tokens, or real demo
-   accounts — ever. They live in gitignored local config (`.env`, `config/local/`). The
-   AI planner uses the user's Claude Code OAuth, not a committed key.
+   accounts — ever. They live in gitignored local config (`.env`, `config/local/`) or, for
+   the desktop profile, the OS user-data dir (edited in-app Settings). The AI planner uses
+   the user's Claude Code OAuth, not a committed key.
 
 ## Commands
 

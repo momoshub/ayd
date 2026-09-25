@@ -104,12 +104,7 @@
         width: 9px;
         height: 9px;
         border-radius: 3px;
-      }
-      .legend .admin {
-        background: var(--admin);
-      }
-      .legend .user {
-        background: var(--user);
+        flex: none;
       }
       #profile {
         margin-left: auto;
@@ -438,17 +433,163 @@
         content: 'Scripted-run events stream here.';
         color: var(--faint);
       }
+
+      /* ---- header profile button ---- */
+      #profile {
+        font-weight: 400;
+      }
+      #profile:hover {
+        border-color: var(--faint);
+        color: var(--text);
+      }
+
+      /* ---- settings modal ---- */
+      .backdrop[hidden] {
+        display: none;
+      }
+      .backdrop {
+        position: fixed;
+        inset: 0;
+        background: color-mix(in srgb, #000 55%, transparent);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        z-index: 50;
+      }
+      .modal {
+        width: min(560px, 100%);
+        max-height: 100%;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        box-shadow: 0 24px 60px color-mix(in srgb, #000 45%, transparent);
+      }
+      .modal-head,
+      .modal-foot {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 14px 16px;
+      }
+      .modal-head {
+        border-bottom: 1px solid var(--border-soft);
+      }
+      .modal-head h2 {
+        margin: 0;
+        font-size: 14px;
+        font-weight: 600;
+      }
+      .modal-head .btn-ghost {
+        margin-left: auto;
+      }
+      .modal-foot {
+        border-top: 1px solid var(--border-soft);
+        justify-content: flex-end;
+      }
+      .modal-body {
+        padding: 16px;
+        overflow: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        min-height: 0;
+      }
+      .cfg-field {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+      }
+      .cfg-label {
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--muted);
+      }
+      .cfg-note {
+        font-size: 11px;
+        color: var(--faint);
+      }
+      input[type='text'],
+      input[type='url'] {
+        width: 100%;
+        background: var(--surface-2);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        padding: 9px 11px;
+        font: inherit;
+        font-size: 13px;
+      }
+      input[type='text']:focus,
+      input[type='url']:focus {
+        outline: none;
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+      }
+      .cfg-personas-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-top: 4px;
+      }
+      #cfg-personas {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .persona-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr auto auto;
+        gap: 8px;
+        align-items: center;
+      }
+      .persona-row input[type='color'] {
+        width: 38px;
+        height: 36px;
+        padding: 2px;
+        background: var(--surface-2);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+      }
+      .persona-row .btn-remove {
+        background: transparent;
+        border: 1px solid var(--border);
+        color: var(--muted);
+        padding: 8px 10px;
+      }
+      .persona-row .btn-remove:hover:not(:disabled) {
+        color: var(--danger);
+        border-color: var(--danger);
+      }
+      .cfg-error {
+        background: color-mix(in srgb, var(--danger) 14%, var(--surface));
+        border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
+        color: var(--danger);
+        border-radius: var(--radius-sm);
+        padding: 9px 11px;
+        font-size: 12px;
+        white-space: pre-wrap;
+      }
+      .cfg-status {
+        margin-right: auto;
+        font-size: 12px;
+        color: var(--ok);
+      }
     </style>
   </head>
   <body>
     <header>
       <span class="mark">ayd<span class="dot">.</span></span>
       <span class="tagline">automate y_our demo(n)s</span>
-      <span class="legend">
-        <span><span class="swatch admin"></span>admin</span>
-        <span><span class="swatch user"></span>user</span>
-      </span>
-      <span id="profile">loading profile…</span>
+      <span class="legend" id="legend"></span>
+      <button id="profile" title="Open settings">loading profile…</button>
+      <button id="settings-open" class="btn-ghost" title="Settings">⚙ Settings</button>
     </header>
 
     <main>
@@ -521,6 +662,41 @@
         </section>
       </div>
     </main>
+
+    <!-- Settings: the entire config surface, so nothing needs hand-editing -->
+    <div id="settings" class="backdrop" hidden>
+      <section class="modal">
+        <div class="modal-head">
+          <h2>Settings</h2>
+          <button id="settings-close" class="btn-ghost">Close</button>
+        </div>
+        <div class="modal-body">
+          <label class="cfg-field">
+            <span class="cfg-label">App base URL</span>
+            <input id="cfg-baseurl" type="url" placeholder="https://app.example.com" />
+            <span class="cfg-note"
+              >where the demo runs. relative paths in the chat resolve against this.</span
+            >
+          </label>
+
+          <div class="cfg-personas-head">
+            <span class="cfg-label">Personas</span>
+            <button id="cfg-add" class="btn-ghost">+ Add persona</button>
+          </div>
+          <span class="cfg-note"
+            >each persona is one logged-in actor in its own browser window, framed in its colour so
+            viewers know who they're watching.</span
+          >
+          <div id="cfg-personas"></div>
+
+          <div id="cfg-error" class="cfg-error" hidden></div>
+        </div>
+        <div class="modal-foot">
+          <span id="cfg-status" class="cfg-status"></span>
+          <button id="cfg-save" class="btn-primary">Save settings</button>
+        </div>
+      </section>
+    </div>
 
     <script type="module" src="./renderer.js"></script>
   </body>

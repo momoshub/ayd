@@ -1,9 +1,10 @@
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   type AgentSession,
   type Clock,
+  ok,
   type Persona,
   type Result,
   parseDemoScript,
@@ -15,12 +16,17 @@ import { createClaudeAgentPlanner, createInteractiveAgent } from '@ayd/planner';
 import { app, BrowserWindow, ipcMain } from 'electron';
 import { type Browser, chromium } from 'playwright';
 import { createIpcPresenter, IPC } from './ipc.js';
-import { type DemoProfile, parseProfile } from './profile.js';
+import { DEFAULT_PROFILE, type DemoProfile, parseProfile } from './profile.js';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const rawPace = Number(process.env.AYD_PACE_MS ?? 2500);
 const PACE_MS = Number.isFinite(rawPace) ? rawPace : 2500;
-const profilePath = process.env.AYD_PROFILE ?? join(process.cwd(), 'config/local/profile.json');
+
+// The profile lives in the OS user-data dir so the app is a self-contained GUI:
+// no file to hand-edit, nothing in the repo. AYD_PROFILE still overrides it for
+// tests and headless runs. app.getPath is only safe after ready, so resolve lazily.
+const getProfilePath = (): string =>
+  process.env.AYD_PROFILE ?? join(app.getPath('userData'), 'profile.json');
 
 const nodeClock: Clock = {
   now: () => Date.now(),
@@ -53,11 +59,41 @@ const send = (channel: string, payload: unknown): void => {
   controlWindow?.webContents.send(channel, payload);
 };
 
-const loadProfile = async (): Promise<Result<DemoProfile, string[]>> => {
+/**
+ * Load the profile, distinguishing "never configured" (no file -> usable defaults)
+ * from "configured but broken" (bad JSON/schema -> surface the error). `configured`
+ * lets the UI decide whether to nudge the operator into Settings on first launch.
+ */
+const loadProfileDetailed = async (): Promise<{
+  result: Result<DemoProfile, string[]>;
+  configured: boolean;
+}> => {
+  let raw: string;
   try {
-    return parseProfile(JSON.parse(await readFile(profilePath, 'utf8')));
+    raw = await readFile(getProfilePath(), 'utf8');
+  } catch {
+    return { result: ok(DEFAULT_PROFILE), configured: false };
+  }
+  try {
+    return { result: parseProfile(JSON.parse(raw)), configured: true };
+  } catch {
+    return { result: { ok: false, error: ['saved profile is not valid JSON'] }, configured: true };
+  }
+};
+
+const loadProfile = async (): Promise<Result<DemoProfile, string[]>> =>
+  (await loadProfileDetailed()).result;
+
+const saveProfile = async (input: unknown): Promise<Result<DemoProfile, string[]>> => {
+  const parsed = parseProfile(input);
+  if (!parsed.ok) return parsed;
+  try {
+    const path = getProfilePath();
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, JSON.stringify(parsed.value, null, 2), 'utf8');
+    return parsed;
   } catch (e) {
-    return { ok: false, error: [`could not read profile at ${profilePath}: ${String(e)}`] };
+    return { ok: false, error: [`could not save settings: ${String(e)}`] };
   }
 };
 
@@ -98,7 +134,17 @@ const withDemoRun = async <T>(
 };
 
 const registerIpc = (): void => {
-  ipcMain.handle(IPC.getProfile, () => loadProfile());
+  ipcMain.handle(IPC.getProfile, async () => {
+    const { result, configured } = await loadProfileDetailed();
+    return result.ok
+      ? { ok: true, value: result.value, configured }
+      : { ok: false, error: result.error, configured };
+  });
+
+  ipcMain.handle(IPC.saveProfile, async (_e, input: unknown) => {
+    const result = await saveProfile(input);
+    return result.ok ? { ok: true, value: result.value } : { ok: false, error: result.error };
+  });
 
   ipcMain.handle(IPC.runScript, async (_e, scriptJson: string) => {
     let raw: unknown;

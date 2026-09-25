@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseProfile } from './profile.js';
+import { DEFAULT_PROFILE, parseProfile } from './profile.js';
 
 const valid = {
   baseUrl: 'http://localhost:3000',
@@ -33,5 +33,9 @@ describe('parseProfile', () => {
     const r = parseProfile({ ...valid, personas: [{ id: 'a', label: 'A' }] });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error.some((e) => e.includes('personas[0]'))).toBe(true);
+  });
+
+  it('ships a valid DEFAULT_PROFILE so a fresh install is runnable', () => {
+    expect(parseProfile(DEFAULT_PROFILE).ok).toBe(true);
   });
 });

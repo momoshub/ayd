@@ -10,6 +10,8 @@ export const IPC = {
   stop: 'ayd:stop',
   /** renderer → main: read the demo profile (personas, base URL). */
   getProfile: 'ayd:get-profile',
+  /** renderer → main: validate and persist the demo profile from Settings. */
+  saveProfile: 'ayd:save-profile',
   /** main → renderer: a streamed RunEvent. */
   event: 'ayd:event',
   /** renderer → main: start (or continue) a live chat session driving the browser. */

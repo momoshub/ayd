@@ -5,6 +5,8 @@ import { IPC } from './ipc.js';
 /** The safe API exposed to the renderer as window.ayd. */
 export interface AydBridge {
   getProfile(): Promise<unknown>;
+  /** Validate and persist the profile edited in Settings. */
+  saveProfile(profile: unknown): Promise<unknown>;
   runScript(scriptJson: string): Promise<unknown>;
   planAndRun(description: string): Promise<unknown>;
   stop(): Promise<void>;
@@ -20,6 +22,7 @@ export interface AydBridge {
 
 const bridge: AydBridge = {
   getProfile: () => ipcRenderer.invoke(IPC.getProfile),
+  saveProfile: (profile) => ipcRenderer.invoke(IPC.saveProfile, profile),
   runScript: (scriptJson) => ipcRenderer.invoke(IPC.runScript, scriptJson),
   planAndRun: (description) => ipcRenderer.invoke(IPC.planAndRun, description),
   stop: () => ipcRenderer.invoke(IPC.stop) as Promise<void>,

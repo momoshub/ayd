@@ -2,13 +2,26 @@ import { type Persona, type Result, err, ok } from '@ayd/core';
 
 /**
  * A demo profile is machine-local and SENSITIVE (it names the target app and the
- * personas/accounts to drive). It is loaded from gitignored config at runtime,
- * never bundled. This validates it before use.
+ * personas/accounts to drive). It is edited in the app's Settings and persisted
+ * to the OS user-data dir, never bundled or committed. This validates it.
  */
 export interface DemoProfile {
   readonly baseUrl: string;
   readonly personas: readonly Persona[];
 }
+
+/**
+ * What a fresh install runs with so the GUI is usable before anyone opens
+ * Settings. Deliberately generic (localhost + two neutral personas) so it names
+ * no real environment or account.
+ */
+export const DEFAULT_PROFILE: DemoProfile = {
+  baseUrl: 'http://localhost:3000',
+  personas: [
+    { id: 'admin', label: 'ADMIN', color: '#ef4444' },
+    { id: 'user', label: 'USER', color: '#22c55e' },
+  ],
+};
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);

@@ -56,25 +56,28 @@ Per-task scripts:
 ## Run the app
 
 The app drives real browser windows and (for plan mode) uses your Claude Code login,
-so a first run needs three things beyond `pnpm install`:
+so a first run needs the browser binaries beyond `pnpm install`:
 
 ```bash
-# 1. the browser + Electron binaries (declined at install to keep it light)
+# the browser + Electron binaries (declined at install to keep it light)
 pnpm --filter @ayd/engine exec playwright install chromium
 pnpm --filter @ayd/desktop exec electron --version   # triggers Electron's binary fetch
-# (plan mode also needs the Claude Code CLI, logged in: `claude login`)
+# (plan + chat modes also need the Claude Code CLI, logged in: `claude login`)
 
-# 2. a local, gitignored demo profile (names the target app + personas — SENSITIVE)
-mkdir -p config/local && cp config/profile.example.json config/local/profile.json
-
-# 3. build and launch
+# build and launch
 pnpm --filter @ayd/desktop build
 pnpm --filter @ayd/desktop start
 ```
 
-Then paste a description and hit **Plan & Run**, or paste a `DemoScript` JSON (see
-[`examples/hello.demo.json`](examples/hello.demo.json)) and hit **Run Script**. Live
-run events stream into the log. Opt-in browser test: `pnpm test:integration`.
+There is no config file to edit. On first launch the app opens **Settings**, where
+you set the target app's base URL and the personas (id, label, colour) in the GUI.
+It is saved to your OS user-data dir (never the repo) and reopened from the header
+any time. The profile names your target app and accounts, so it stays machine-local.
+
+Then chat with the **Live agent** to drive the open browser (interrupt or steer it
+any time), paste a description and hit **Plan & Run**, or paste a `DemoScript` JSON
+(see [`examples/hello.demo.json`](examples/hello.demo.json)) and hit **Run Script**.
+Live run events stream into the log. Opt-in browser test: `pnpm test:integration`.
 
 ### Run without the UI (CLI)
 
@@ -96,7 +99,7 @@ packages/engine/  Playwright adapter — implements the BrowserDriver port + ove
 packages/planner/ Claude Agent SDK adapter — implements the AiPlanner port.
 apps/desktop/     Electron main + renderer — the composition root and control UI.
 apps/cli/         headless/headed CLI runner (a second composition root).
-examples/         sample DemoScripts.  config/  profile example (local profile is gitignored).
+examples/         sample DemoScripts.  config/  example of the profile shape (edited in-app, saved to user-data).
 docs/adr/         architecture decision records.
 ```
 

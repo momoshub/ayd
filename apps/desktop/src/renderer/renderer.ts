@@ -6,6 +6,25 @@ const $ = <T extends HTMLElement>(id: string): T => {
   return el as T;
 };
 
+interface UiPersona {
+  id: string;
+  label: string;
+  color: string;
+}
+interface UiProfile {
+  baseUrl: string;
+  personas: UiPersona[];
+}
+
+/** Used only when a saved profile is missing or unreadable, so Settings is never blank. */
+const FALLBACK: UiProfile = {
+  baseUrl: 'http://localhost:3000',
+  personas: [
+    { id: 'admin', label: 'ADMIN', color: '#ef4444' },
+    { id: 'user', label: 'USER', color: '#22c55e' },
+  ],
+};
+
 // ---- run log (scripted runs) ----------------------------------------------
 
 const log = (line: string): void => {
@@ -48,6 +67,22 @@ const reportResult = (label: string, result: unknown): void => {
   if (typeof result === 'object' && result !== null && 'ok' in result && result.ok === false) {
     const error = (result as { error?: readonly string[] }).error ?? ['unknown error'];
     log(`  ✗ ${label} — ${error.join('; ')}`);
+  }
+};
+
+// ---- header profile + legend ----------------------------------------------
+
+const showProfile = (profile: UiProfile): void => {
+  $<HTMLElement>('profile').textContent = `profile: ${profile.baseUrl}`;
+  const legend = $<HTMLElement>('legend');
+  legend.replaceChildren();
+  for (const p of profile.personas) {
+    const wrap = document.createElement('span');
+    const swatch = document.createElement('span');
+    swatch.className = 'swatch';
+    swatch.style.background = p.color;
+    wrap.append(swatch, p.label || p.id);
+    legend.appendChild(wrap);
   }
 };
 
@@ -121,6 +156,83 @@ const renderAgentMessage = (m: AgentMessage): void => {
     case 'done':
       statusLine('turn complete — send the next step', true);
       break;
+  }
+};
+
+// ---- settings modal --------------------------------------------------------
+
+const addPersonaRow = (p?: UiPersona): void => {
+  const row = document.createElement('div');
+  row.className = 'persona-row';
+
+  const id = document.createElement('input');
+  id.type = 'text';
+  id.className = 'p-id';
+  id.placeholder = 'id (e.g. admin)';
+  id.value = p?.id ?? '';
+
+  const label = document.createElement('input');
+  label.type = 'text';
+  label.className = 'p-label';
+  label.placeholder = 'label (e.g. ADMIN)';
+  label.value = p?.label ?? '';
+
+  const color = document.createElement('input');
+  color.type = 'color';
+  color.className = 'p-color';
+  color.value = p?.color ?? '#6d6cf5';
+
+  const remove = document.createElement('button');
+  remove.className = 'btn-remove';
+  remove.textContent = '✕';
+  remove.title = 'Remove persona';
+  remove.addEventListener('click', () => row.remove());
+
+  row.append(id, label, color, remove);
+  $<HTMLElement>('cfg-personas').appendChild(row);
+};
+
+const openSettings = (profile: UiProfile): void => {
+  $<HTMLInputElement>('cfg-baseurl').value = profile.baseUrl;
+  $<HTMLElement>('cfg-personas').replaceChildren();
+  const personas = profile.personas.length > 0 ? profile.personas : FALLBACK.personas;
+  for (const p of personas) addPersonaRow(p);
+  $<HTMLElement>('cfg-error').hidden = true;
+  $<HTMLElement>('cfg-status').textContent = '';
+  $<HTMLElement>('settings').hidden = false;
+  $<HTMLInputElement>('cfg-baseurl').focus();
+};
+
+const closeSettings = (): void => {
+  $<HTMLElement>('settings').hidden = true;
+};
+
+const collectSettings = (): UiProfile => {
+  const rows = Array.from(document.querySelectorAll<HTMLElement>('#cfg-personas .persona-row'));
+  const personas = rows.map((row) => ({
+    id: row.querySelector<HTMLInputElement>('.p-id')?.value.trim() ?? '',
+    label: row.querySelector<HTMLInputElement>('.p-label')?.value.trim() ?? '',
+    color: row.querySelector<HTMLInputElement>('.p-color')?.value ?? '#000000',
+  }));
+  return { baseUrl: $<HTMLInputElement>('cfg-baseurl').value.trim(), personas };
+};
+
+const saveSettings = async (): Promise<void> => {
+  const profile = collectSettings();
+  const errBox = $<HTMLElement>('cfg-error');
+  const result = (await window.ayd.saveProfile(profile)) as {
+    ok: boolean;
+    value?: UiProfile;
+    error?: string[];
+  };
+  if (result.ok && result.value) {
+    errBox.hidden = true;
+    showProfile(result.value);
+    $<HTMLElement>('cfg-status').textContent = 'saved';
+    setTimeout(closeSettings, 500);
+  } else {
+    errBox.textContent = (result.error ?? ['could not save settings']).join('\n');
+    errBox.hidden = false;
   }
 };
 
@@ -198,14 +310,42 @@ const main = async (): Promise<void> => {
 
   window.ayd.onEvent(renderEvent);
 
+  // --- settings ---
+  let current: UiProfile = FALLBACK;
+  const showSettings = (): void => openSettings(current);
+  $<HTMLButtonElement>('settings-open').addEventListener('click', showSettings);
+  $<HTMLElement>('profile').addEventListener('click', showSettings);
+  $<HTMLButtonElement>('settings-close').addEventListener('click', closeSettings);
+  $<HTMLButtonElement>('cfg-add').addEventListener('click', () => addPersonaRow());
+  $<HTMLButtonElement>('cfg-save').addEventListener('click', () => {
+    void saveSettings().then(() => {
+      current = collectSettings();
+    });
+  });
+  $<HTMLElement>('settings').addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) closeSettings();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !$<HTMLElement>('settings').hidden) closeSettings();
+  });
+
   const profile = (await window.ayd.getProfile()) as {
     ok: boolean;
-    value?: { baseUrl: string };
+    value?: UiProfile;
     error?: string[];
+    configured?: boolean;
   };
-  $<HTMLDivElement>('profile').textContent = profile.ok
-    ? `profile: ${profile.value?.baseUrl ?? ''}`
-    : `no profile — ${(profile.error ?? []).join('; ')}`;
+  if (profile.ok && profile.value) {
+    current = profile.value;
+    showProfile(profile.value);
+    // First launch (no saved profile yet) -> open Settings so nothing needs hand-editing.
+    if (profile.configured === false) openSettings(profile.value);
+  } else {
+    $<HTMLElement>('profile').textContent = 'settings needed';
+    openSettings(FALLBACK);
+    $<HTMLElement>('cfg-error').textContent = (profile.error ?? []).join('\n');
+    $<HTMLElement>('cfg-error').hidden = (profile.error ?? []).length === 0;
+  }
 
   input.focus();
 };
