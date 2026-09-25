@@ -541,7 +541,48 @@ const main = async (): Promise<void> => {
     $<HTMLElement>('cfg-error').hidden = (profile.error ?? []).length === 0;
   }
 
+  void renderPreflight();
+
   input.focus();
+};
+
+/** Header chips for the two prerequisites, with a log warning if either is missing. */
+const renderPreflight = async (): Promise<void> => {
+  const box = $<HTMLElement>('preflight');
+  const chip = (label: string, ok: boolean, title: string): HTMLElement => {
+    const el = document.createElement('span');
+    el.className = `chip ${ok ? 'ok' : 'bad'}`;
+    el.textContent = label;
+    el.title = title;
+    return el;
+  };
+  try {
+    const pf = await window.ayd.getPreflight();
+    box.replaceChildren(
+      chip(
+        `Browser${pf.browser.ok ? '' : ' ✗'}`,
+        pf.browser.ok,
+        pf.browser.ok
+          ? `using ${pf.browser.name}`
+          : 'no Chromium-based browser found — install Google Chrome',
+      ),
+      chip(
+        `Claude Code${pf.claudeCode.ok ? '' : ' ✗'}`,
+        pf.claudeCode.ok,
+        pf.claudeCode.ok
+          ? `Claude Code ${pf.claudeCode.version ?? 'found'}`
+          : 'Claude Code CLI not found — plan and chat modes need it (claude login)',
+      ),
+    );
+    if (!pf.browser.ok)
+      log('! no Chromium-based browser found — install Google Chrome so demos can drive a browser');
+    if (!pf.claudeCode.ok)
+      log(
+        '! Claude Code CLI not found — plan & chat modes need it (install it and run `claude login`)',
+      );
+  } catch {
+    /* preflight is advisory; never block the UI on it */
+  }
 };
 
 void main().catch((e: unknown) => log(`! control UI failed — ${String(e)}`));

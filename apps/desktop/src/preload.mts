@@ -15,6 +15,12 @@ export interface TabUpdate {
   activity: Record<string, string>;
 }
 
+/** Prerequisite check surfaced in the header. */
+export interface PreflightStatus {
+  browser: { name: string; ok: boolean };
+  claudeCode: { ok: boolean; version?: string };
+}
+
 /** The safe API exposed to the renderer as window.ayd. */
 export interface AydBridge {
   getProfile(): Promise<unknown>;
@@ -46,6 +52,8 @@ export interface AydBridge {
   getAuthStatus(): Promise<{ tokenSet: boolean }>;
   /** Save/update the Claude Code token (encrypted on this machine). */
   saveToken(token: string): Promise<unknown>;
+  /** Check prerequisites: a Chromium-based browser and the Claude Code CLI. */
+  getPreflight(): Promise<PreflightStatus>;
 }
 
 const bridge: AydBridge = {
@@ -80,6 +88,7 @@ const bridge: AydBridge = {
   getSession: (id) => ipcRenderer.invoke(IPC.getSession, id) as Promise<ConversationLog | null>,
   getAuthStatus: () => ipcRenderer.invoke(IPC.getAuthStatus) as Promise<{ tokenSet: boolean }>,
   saveToken: (token) => ipcRenderer.invoke(IPC.saveToken, token),
+  getPreflight: () => ipcRenderer.invoke(IPC.getPreflight) as Promise<PreflightStatus>,
 };
 
 contextBridge.exposeInMainWorld('ayd', bridge);

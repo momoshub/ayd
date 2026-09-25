@@ -59,7 +59,25 @@ Per-task scripts:
 | `pnpm lint` / `pnpm lint:fix`   | eslint (flat config, type-aware)         |
 | `pnpm format`                   | prettier                                 |
 
-## Run the app
+## Download (macOS)
+
+Grab the `.zip` from the latest [GitHub release](https://github.com/momoshub/ayd/releases),
+unzip, and move `ayd.app` to `/Applications`. It is **unsigned**, so on first open macOS
+Gatekeeper blocks it — clear the quarantine flag once:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/ayd.app
+```
+
+Prerequisites the app checks for on launch (shown as header chips):
+
+- a **Chromium-based browser** (Google Chrome / Edge / Brave / Chromium) — the app drives
+  your installed browser, it ships none;
+- the **Claude Code** CLI, logged in (`claude login`) — needed for plan and chat modes.
+
+Everything else (the target app URL, personas) is set in-app under **Settings**.
+
+## Run the app (from source)
 
 The app drives real browser windows and (for plan mode) uses your Claude Code login,
 so a first run needs the browser binaries beyond `pnpm install`:
